@@ -171,7 +171,7 @@ class MicropsiPlugin(object):
 
     def get_int_coordinates(self):
         return {
-            'x': int(self.clientinfo.position['x']),
-            'y': int(self.clientinfo.position['y']),
-            'z': int(self.clientinfo.position['z'])
+            'x': math.floor(self.clientinfo.position['x']),
+            'y': math.floor(self.clientinfo.position['y']),
+            'z': math.floor(self.clientinfo.position['z'])
         }

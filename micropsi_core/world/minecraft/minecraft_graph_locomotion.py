@@ -4,6 +4,7 @@ from configuration import config as cfg
 import random
 import logging
 import time
+import math
 from functools import partial
 from math import sqrt, radians, cos, sin, tan
 from spock.mcp.mcpacket import Packet
@@ -327,8 +328,8 @@ class MinecraftGraphLocomotion(WorldAdapter):
                     if self.current_loco_node is None:
                         # bot is outside our graph, teleport to a random graph location to get started.
                         target = random.choice(list(self.loco_nodes.keys()))
-                        self.locomote(target)
-                    # self.locomote(self.village_uid)
+                        self.teleport(target)
+                    # self.teleport(self.village_uid)
             else:
                 self.waiting_for_spock = False
         else:
@@ -460,7 +461,7 @@ class MinecraftGraphLocomotion(WorldAdapter):
             else:
                 self.simulate_visual_input()
 
-    def locomote(self, target_loco_node_uid):
+    def teleport(self, target_loco_node_uid):
         new_loco_node = self.loco_nodes[target_loco_node_uid]
 
         self.logger.debug('locomoting to  %s' % new_loco_node['name'])
@@ -471,8 +472,35 @@ class MinecraftGraphLocomotion(WorldAdapter):
             new_loco_node['z']))
 
         self.target_loco_node_uid = target_loco_node_uid
-
         self.current_loco_node = new_loco_node
+
+    def locomote(self, target_loco_node_uid):
+        new_loco_node = self.loco_nodes[target_loco_node_uid]
+        self.logger.debug('walking to  %s' % new_loco_node['name'])
+
+        yaw = self.look_towards(new_loco_node)
+        rad = yaw * math.pi / 180
+
+        if self.spockplugin.dispatchMovement(-round(math.sin(rad)), round(math.cos(rad))):
+            print('made a step')
+        else:
+            print('path blocked, turning')
+
+        self.target_loco_node_uid = target_loco_node_uid
+        self.current_loco_node = new_loco_node
+
+    def look_towards(self, target_coords):
+        pos = self.spockplugin.clientinfo.position
+        dX = pos['x'] - target_coords['x']
+        dZ = pos['z'] - target_coords['z']
+        yaw = math.atan2(dZ, dX) * 180 / math.pi
+        yaw += 90
+        yaw = yaw % 360
+        zyaw = yaw
+        if zyaw > 180:
+            zyaw = 180 - yaw
+        self.spockplugin.clientinfo.position['yaw'] = yaw
+        return yaw
 
     def check_for_action_feedback(self):
         """ """

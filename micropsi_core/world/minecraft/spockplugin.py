@@ -3,6 +3,8 @@ from spock.mcmap import smpmap
 from spock.mcp import mcdata, mcpacket
 from spock.mcp.mcpacket import Packet
 from spock.utils import pl_announce
+from spock.mcmap import mapdata
+import math
 
 
 STANCE_ADDITION = 1.620
@@ -43,24 +45,24 @@ class MicropsiPlugin(object):
 
     def dispatchMovement(self, move_x, move_z):
         target_coords = self.get_int_coordinates()
-        if move_x:
-            target_coords['x'] += 1
-        elif move_z:
-            target_coords['z'] += 1
+        target_coords['x'] += int(move_x)
+        target_coords['z'] += int(move_z)
 
         ground_offset = 2  # assume impossible
         y = target_coords['y'] - 1  # current block agent is standing on
 
         # check if the next step is possible: nothing in the way, height diff <= 1
-        if self.get_block_type(target_coords['x'], y + 2, target_coords['z']) > 0:
+        if self.is_opaque(self.get_block_type(target_coords['x'], y + 2, target_coords['z'])):
             ground_offset = 2
-        elif self.get_block_type(target_coords['x'], y + 1, target_coords['z']) > 0 and \
-                self.get_block_type(target_coords['x'], y + 3, target_coords['z']) <= 0:
+        elif self.is_opaque(self.get_block_type(target_coords['x'], y + 1, target_coords['z'])) and \
+                not self.is_opaque(self.get_block_type(target_coords['x'], y + 3, target_coords['z'])):
             ground_offset = 1
-        elif self.get_block_type(target_coords['x'], y, target_coords['z']) > 0:
+        elif self.is_opaque(self.get_block_type(target_coords['x'], y, target_coords['z'])):
             ground_offset = 0
-        elif self.get_block_type(target_coords['x'], y - 1, target_coords['z']) > 0:
+        elif self.is_opaque(self.get_block_type(target_coords['x'], y - 1, target_coords['z'])):
             ground_offset = -1
+
+        # TODO: Currently we would walk through lava and water.
 
         if ground_offset < 2:
             self.clientinfo.position['x'] = target_coords['x'] + .5
@@ -68,6 +70,15 @@ class MicropsiPlugin(object):
             self.clientinfo.position['stance'] = target_coords['y'] + ground_offset + STANCE_ADDITION
             self.clientinfo.position['z'] = target_coords['z'] + .5
             self.clientinfo.position['on_ground'] = True
+            return True
+        return False
+
+    def is_opaque(self, block_id):
+        if block_id <= 0:
+            return False
+        if block_id in mapdata.blocks_dict:
+            return mapdata.blocks_dict[block_id]['bounding_box'] != 'empty'
+        return True
 
     def get_block_type(self, x, y, z):
         """
@@ -91,7 +102,6 @@ class MicropsiPlugin(object):
         return chunk.block_data.get(rx, ry, rz) >> 4
 
     def get_biome_info(self, pos=None):
-        from spock.mcmap.mapdata import biomes
         if pos is None:
             pos = self.get_int_coordinates()
         key = (pos['x'] // 16, pos['z'] // 16)
@@ -101,7 +111,7 @@ class MicropsiPlugin(object):
         current_column = columns[key]
         biome_id = current_column.biome.get(pos['x'] % 16, pos['z'] % 16)
         if biome_id >= 0:
-            return biomes[biome_id]
+            return mapdata.biomes[biome_id]
         else:
             return None
 

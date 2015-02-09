@@ -181,9 +181,10 @@ class MinecraftGraphLocomotion(WorldAdapter):
     loco_nodes[swamp_uid]['exit_one_uid'] = forest_uid
     loco_nodes[swamp_uid]['exit_two_uid'] = summit_uid
 
-    tp_tolerance = 5
+    logger = None
 
-    action_timeout = 10
+    tp_tolerance = 1
+    action_timeout = 0
 
     actions = ['eat', 'sleep', 'take_exit_one', 'take_exit_two', 'take_exit_three']
 
@@ -460,6 +461,7 @@ class MinecraftGraphLocomotion(WorldAdapter):
 
             else:
                 self.simulate_visual_input()
+
 
     def teleport(self, target_loco_node_uid):
         new_loco_node = self.loco_nodes[target_loco_node_uid]

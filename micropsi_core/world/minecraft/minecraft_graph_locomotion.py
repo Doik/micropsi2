@@ -122,7 +122,7 @@ class MinecraftGraphLocomotion(WorldAdapter):
     loco_nodes[summit_uid]['name'] = "summit"
     loco_nodes[summit_uid]['uid'] = summit_uid
     loco_nodes[summit_uid]['x'] = -233
-    loco_nodes[summit_uid]['y'] = 102
+    loco_nodes[summit_uid]['y'] = 103
     loco_nodes[summit_uid]['z'] = 307
     loco_nodes[summit_uid]['exit_one_uid'] = swamp_uid
 
@@ -542,9 +542,10 @@ class MinecraftGraphLocomotion(WorldAdapter):
         return food > old_value or food == 20
 
     def check_movement_feedback(self, target_loco_node):
-        if abs(self.loco_nodes[target_loco_node]['x'] - int(self.spockplugin.clientinfo.position['x'])) <= self.tp_tolerance \
-           and abs(self.loco_nodes[target_loco_node]['y'] - int(self.spockplugin.clientinfo.position['y'])) <= self.tp_tolerance \
-           and abs(self.loco_nodes[target_loco_node]['z'] - int(self.spockplugin.clientinfo.position['z'])) <= self.tp_tolerance:
+        target = self.loco_nodes[target_loco_node]
+        pos = self.spockplugin.clientinfo.position
+
+        if target['x'] == math.floor(pos['x']) and target['z'] == math.floor(pos['z']) and target['y'] - math.floor(pos['y']) <= 1:
             # hand the agent a bread, if it just arrived at the farm, or at the village
             if target_loco_node == self.village_uid or target_loco_node == self.farm_uid:
                 self.spockplugin.give_item('bread')

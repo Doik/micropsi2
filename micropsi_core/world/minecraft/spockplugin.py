@@ -83,7 +83,6 @@ class MicropsiPlugin(object):
         # check movement possibility for every block
         for check_block in block_coords:
             move = False
-            # print('checking block %d / %d / %d' % (check_block['x'], check_block['y'], check_block['z']))
             # check if the next step is possible: nothing in the way, height diff <= 1
             if self.is_opaque(self.get_block_type(check_block['x'], y + 2, check_block['z'])):
                 move = False

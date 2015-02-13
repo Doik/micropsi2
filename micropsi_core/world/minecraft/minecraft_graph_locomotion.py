@@ -183,7 +183,7 @@ class MinecraftGraphLocomotion(WorldAdapter):
 
     logger = None
 
-    tp_tolerance = 1
+    tp_tolerance = 4
     action_timeout = 0
 
     actions = ['eat', 'sleep', 'take_exit_one', 'take_exit_two', 'take_exit_three']
@@ -211,6 +211,9 @@ class MinecraftGraphLocomotion(WorldAdapter):
 
     # Note: actors fov_x, fov_y and the saccader's gates fov_x, fov_y ought to be parametrized [0.,2.] w/ threshold 1.
     # -- 0. means inactivity, values between 1. and 2. are the scaled down movement in x/y direction on the image plane
+
+    detour_rotation = None
+    evasive_deviation = 0
 
     def __init__(self, world, uid=None, **data):
         super(MinecraftGraphLocomotion, self).__init__(world, uid, **data)
@@ -462,11 +465,9 @@ class MinecraftGraphLocomotion(WorldAdapter):
             else:
                 self.simulate_visual_input()
 
-
     def teleport(self, target_loco_node_uid):
         new_loco_node = self.loco_nodes[target_loco_node_uid]
-
-        self.logger.debug('locomoting to  %s' % new_loco_node['name'])
+        self.logger.debug('teleporting to  %s' % new_loco_node['name'])
 
         self.spockplugin.chat("/tppos {0} {1} {2}".format(
             new_loco_node['x'],
@@ -481,12 +482,45 @@ class MinecraftGraphLocomotion(WorldAdapter):
         self.logger.debug('walking to  %s' % new_loco_node['name'])
 
         yaw = self.look_towards(new_loco_node)
-        rad = yaw * math.pi / 180
 
-        if self.spockplugin.dispatchMovement(-round(math.sin(rad)), round(math.cos(rad))):
-            print('made a step')
+        self.logger.debug('direction: ' + str(self.detour_rotation))
+        self.logger.debug('deviation: ' + str(self.evasive_deviation))
+
+        if self.detour_rotation is not None:
+            yaw += self.evasive_deviation
+            # try to turn back towars goal
+            yaw -= self.detour_rotation
+            self.set_yaw_degrees(yaw)
+            if self.move_forward(yaw):
+                self.evasive_deviation -= self.detour_rotation
+                if self.evasive_deviation == 0:
+                    self.detour_rotation = None
+            else:
+                yaw += self.detour_rotation
+                while True:
+                    self.set_yaw_degrees(yaw)
+                    if self.move_forward(yaw):
+                        break
+                    else:
+                        # same direction as before
+                        yaw += self.detour_rotation
+                        self.evasive_deviation += self.detour_rotation
+                        self.set_yaw_degrees(yaw)
+
         else:
-            print('path blocked, turning')
+            if not self.move_forward(yaw):
+                # decide which way to turn for detour
+                if (yaw // 45) % 2 == 0:
+                    self.detour_rotation = +45
+                else:
+                    self.detour_rotation = -45
+                # turn until we can move again:
+                while True:
+                    yaw += self.detour_rotation
+                    self.evasive_deviation += self.detour_rotation
+                    self.set_yaw_degrees(yaw)
+                    if self.move_forward(yaw):
+                        break
 
         self.target_loco_node_uid = target_loco_node_uid
         self.current_loco_node = new_loco_node
@@ -500,6 +534,10 @@ class MinecraftGraphLocomotion(WorldAdapter):
         yaw = yaw % 360
         self.set_yaw_degrees(yaw)
         return yaw
+
+    def move_forward(self, yaw_raw):
+        rad = yaw_raw * math.pi / 180
+        return self.spockplugin.dispatchMovement(-round(math.sin(rad)), round(math.cos(rad)))
 
     def set_yaw_degrees(self, yaw_deg):
         if yaw_deg > 179.9:
@@ -545,7 +583,7 @@ class MinecraftGraphLocomotion(WorldAdapter):
         target = self.loco_nodes[target_loco_node]
         pos = self.spockplugin.clientinfo.position
 
-        if target['x'] == math.floor(pos['x']) and target['z'] == math.floor(pos['z']) and target['y'] - math.floor(pos['y']) <= 1:
+        if target['x'] == math.floor(pos['x']) and target['z'] == math.floor(pos['z']) and target['y'] - math.floor(pos['y']) < 1:
             # hand the agent a bread, if it just arrived at the farm, or at the village
             if target_loco_node == self.village_uid or target_loco_node == self.farm_uid:
                 self.spockplugin.give_item('bread')

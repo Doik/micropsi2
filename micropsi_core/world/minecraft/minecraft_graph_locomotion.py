@@ -498,11 +498,13 @@ class MinecraftGraphLocomotion(WorldAdapter):
         yaw = math.atan2(dZ, dX) * 180 / math.pi
         yaw += 90
         yaw = yaw % 360
-        zyaw = yaw
-        if zyaw > 180:
-            zyaw = 180 - yaw
-        self.spockplugin.clientinfo.position['yaw'] = yaw
+        self.set_yaw_degrees(yaw)
         return yaw
+
+    def set_yaw_degrees(self, yaw_deg):
+        if yaw_deg > 179.9:
+            yaw_deg = - (180 - (yaw_deg % 180))
+        self.spockplugin.clientinfo.position['yaw'] = yaw_deg
 
     def check_for_action_feedback(self):
         """ """

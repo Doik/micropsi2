@@ -53,9 +53,9 @@ class MicropsiPlugin(object):
 
         # avoid standing on block edges for easier calculation
         if target_coords['x'] % 0.5 == 0:
-            target_coords['x'] -= 0.1
+            target_coords['x'] = round(target_coords['x'] - 0.1, 4)
         if target_coords['z'] % 0.5 == 0:
-            target_coords['z'] -= 0.1
+            target_coords['z'] = round(target_coords['z'] - 0.1, 4)
 
         # collect target blocks (1): block at coordinates
         block_coords = [self.get_block_coordinates(target_coords)]

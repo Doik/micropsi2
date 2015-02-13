@@ -92,36 +92,31 @@ class MicropsiPlugin(object):
                 # check if we got a special block with height > 1 that we can not jump onto
                 # (Door, IronDoor, Fence, Fence Gate, Cobblestone Wall)
                 if self.get_block_type(check_block['x'], y + 1, check_block['z']) not in [64, 71, 85, 107, 139]:
-                    ground_offset.append(1)
+                    ground_offset.append((1, check_block))
                     move = True
             elif self.is_opaque(self.get_block_type(check_block['x'], y, check_block['z'])):
-                ground_offset.append(0)
+                ground_offset.append((0, check_block))
                 move = True
             elif self.is_opaque(self.get_block_type(check_block['x'], y - 1, check_block['z'])):
-                ground_offset.append(-1)
+                ground_offset.append((-1, check_block))
                 move = True
             if not move:
-                print('nope')
                 return False
+            else:
+                # check for water
+                foot_block = self.get_block_type(check_block['x'], y + 1, check_block['z'])
+                ground_block = self.get_block_type(check_block['x'], y, check_block['z'])
+                if foot_block in [8, 9] or ground_block in [8, 9]:
+                    if foot_block in [8, 9]:
+                        # we're already swimming
+                        ground_offset[-1] = (0, check_block)
+                    else:
+                        # we would be walking on water, adjust y to be *in* water
+                        ground_offset[-1] = (-1, check_block)
 
         # take the highest block
-        # (necessary, if we're close to other blocks)
-        ground_offset.sort()
-        ground_offset = ground_offset[-1]
-
-        # TODO: what block do we use as standing on here?
-        block_coords = block_coords[-1]
-
-        # check for water:
-        foot_block = self.get_block_type(block_coords['x'], y + 1, block_coords['z'])
-        ground_block = self.get_block_type(block_coords['x'], y, block_coords['z'])
-        if ground_block in [8, 9]:
-            if foot_block in [8, 9]:
-                # we're already swimming
-                ground_offset = 0
-            else:
-                # we would be walking on water, adjust y to be *in* water
-                ground_offset = -1
+        ground_offset = sorted(ground_offset, key=lambda tup: tup[0])
+        ground_offset = ground_offset[-1][0]
 
         # update our position
         self.clientinfo.position['x'] = target_coords['x']
@@ -134,6 +129,9 @@ class MicropsiPlugin(object):
     def is_opaque(self, block_id):
         if block_id <= 0:
             return False
+        if block_id in [8, 9]:
+            # water, we treat it as opaque, so we can swim
+            return True
         if block_id in mapdata.blocks_dict:
             return mapdata.blocks_dict[block_id]['bounding_box'] != 'empty'
         return True

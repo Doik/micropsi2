@@ -86,13 +86,17 @@ class MicropsiPlugin(object):
             # check if the next step is possible: nothing in the way, height diff <= 1
             if self.is_opaque(self.get_block_type(check_block['x'], y + 2, check_block['z'])):
                 move = False
-            elif self.is_opaque(self.get_block_type(check_block['x'], y + 1, check_block['z'])) and \
-                    not self.is_opaque(self.get_block_type(check_block['x'], y + 3, check_block['z'])):
-                # check if we got a special block with height > 1 that we can not jump onto
-                # (Door, IronDoor, Fence, Fence Gate, Cobblestone Wall)
-                if self.get_block_type(check_block['x'], y + 1, check_block['z']) not in [64, 71, 85, 107, 139]:
-                    ground_offset.append((1, check_block))
-                    move = True
+            elif self.is_opaque(self.get_block_type(check_block['x'], y + 1, check_block['z'])):
+
+                if not self.is_opaque(self.get_block_type(check_block['x'], y + 3, check_block['z'])):
+                    # check if we got a special block with height > 1 that we can not jump onto
+                    # (Door, IronDoor, Fence, Fence Gate, Cobblestone Wall)
+                    if self.get_block_type(check_block['x'], y + 1, check_block['z']) not in [64, 71, 85, 107, 139]:
+                        ground_offset.append((1, check_block))
+                        move = True
+                else:
+                    move = False
+
             elif self.is_opaque(self.get_block_type(check_block['x'], y, check_block['z'])):
                 ground_offset.append((0, check_block))
                 move = True

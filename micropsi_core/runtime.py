@@ -62,6 +62,31 @@ logger = MicropsiLogger({
 
 nodenet_lock = threading.Lock()
 
+def initialize():
+
+    load_definitions()
+    init_worlds(world_data)
+    load_user_files()
+
+    # initialize runners
+    # Initialize the threads for the continuous simulation of nodenets and worlds
+    if 'runner_timestep' not in configs:
+        configs['runner_timestep'] = 200
+        configs.save_configs()
+    if 'runner_factor' not in configs:
+        configs['runner_factor'] = 2
+        configs.save_configs()
+
+    set_runner_properties(configs['runner_timestep'], configs['runner_factor'])
+
+    runner['running'] = True
+    runner['runner'] = MicropsiRunner()
+
+    add_signal_handler(kill_runners)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
 
 def add_signal_handler(handler):
     signal_handler_registry.append(handler)
@@ -1059,27 +1084,3 @@ def reload_native_modules(nodenet_uid=None):
     if nodenet_uid:
         nodenets[nodenet_uid].reload_native_modules(native_modules)
     return True
-
-
-load_definitions()
-init_worlds(world_data)
-load_user_files()
-
-# initialize runners
-# Initialize the threads for the continuous simulation of nodenets and worlds
-if 'runner_timestep' not in configs:
-    configs['runner_timestep'] = 200
-    configs.save_configs()
-if 'runner_factor' not in configs:
-    configs['runner_factor'] = 2
-    configs.save_configs()
-
-set_runner_properties(configs['runner_timestep'], configs['runner_factor'])
-
-runner['running'] = True
-runner['runner'] = MicropsiRunner()
-
-add_signal_handler(kill_runners)
-
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)

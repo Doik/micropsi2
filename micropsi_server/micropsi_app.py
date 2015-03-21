@@ -40,6 +40,8 @@ bottle.TEMPLATE_PATH.insert(1, os.path.join(APP_PATH, 'static', ''))
 # runtime = micropsi_core.runtime.MicroPsiRuntime()
 usermanager = usermanagement.UserManager()
 
+runtime.initialize()
+
 
 def rpc(command, route_prefix="/rpc/", method="GET", permission_required=None):
     """Defines a decorator for accessing API calls. Use it by specifying the

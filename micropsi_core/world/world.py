@@ -160,9 +160,9 @@ class World(object):
         from micropsi_core.runtime import nodenet_data
         for uid, agent in self.data.get('agents', {}).items():
             if uid in nodenet_data:
-                try:
+                if agent['type'] in self.supported_worldadapters:
                     self.agents[uid] = self.supported_worldadapters[agent['type']](self, **agent)
-                except KeyError:
+                else:
                     warnings.warn('Worldadapter %s not found, can not spawn agent %s' % (agent['type'], agent['name']))
             else:
                 outdated_agents.append(uid)

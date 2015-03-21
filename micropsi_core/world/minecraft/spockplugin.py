@@ -107,7 +107,7 @@ class MicropsiPlugin(object):
             pos = self.get_int_coordinates()
         biome = self.get_biome_info(pos=pos)
         if biome:
-            temp = biome['temperature']
+            temp = biome.temperature
             if pos['y'] > 64:
                 temp -= (0.00166667 * (pos['y'] - 64))
             return temp

@@ -1,11 +1,8 @@
 from threading import Thread
 
-from spock.client import Client
+import spock
 from spock.plugins import DefaultPlugins
 from spock.plugins.core.event import EventPlugin
-from spock.plugins.helpers.clientinfo import ClientInfoPlugin
-from spock.plugins.helpers.move import MovementPlugin
-from spock.plugins.helpers.world import WorldPlugin
 
 from micropsi_core.world.world import World
 from micropsi_core.world.worldadapter import WorldAdapter
@@ -45,32 +42,22 @@ class Minecraft(World):
         # do spock things first, then initialize micropsi world because the latter requires self.spockplugin
 
         # register all necessary spock plugins
-        # DefaultPlugins contain EventPlugin, NetPlugin, TimerPlugin, AuthPlugin,
-        # ThreadPoolPlugin, StartPlugin and KeepalivePlugin
+        # DefaultPlugins already contain all we want
         plugins = DefaultPlugins
-        plugins.append(ClientInfoPlugin)
-        plugins.append(MovementPlugin)
-        plugins.append(WorldPlugin)
-        plugins.append(MicropsiPlugin)
+        plugins.append(('micropsi', MicropsiPlugin))
 
         # get spock configs
         settings = self.get_config()
 
         # add plugin-specific settings
         settings['plugins'] = plugins
-        settings['plugin_settings'] = {
-            MicropsiPlugin: {
-                "micropsi_world": self
-            },
-            EventPlugin: {
-                "killsignals": False
-            }
-        }
+        settings['micropsi'] = {"micropsi_world": uid}
+        settings['event'] = {"killsignals": False}
 
         # instantiate spock client if not yet done, which in turn instantiates its plugins
         # ( MicropsiPlugin sets self.spockplugin upon instantiation )
         if self.instances['spock'] is None:
-            self.instances['spock'] = Client(plugins=plugins, settings=settings)
+            self.instances['spock'] = spock.Client(plugins=plugins, settings=settings)
 
         if self.instances['thread'] is None:
             # start new thread for minecraft comm" which starts spock client
@@ -82,6 +69,8 @@ class Minecraft(World):
             self.instances['thread'] = thread
             #
             add_signal_handler(self.kill_minecraft_thread)
+
+        self.spockplugin = self.instances['spock'].requires('Micropsi')
 
         # once MicropsiPlugin is instantiated and running, initialize micropsi world
         World.__init__(self, filename, world_type=world_type, name=name, owner=owner, uid=uid, version=version)
@@ -103,12 +92,14 @@ class Minecraft(World):
         from configuration import config as cfg
 
         settings = {
-            'username': cfg['minecraft']['username'],
-            'password': cfg['minecraft']['password'],
+            'start': {
+                'username': cfg['minecraft']['username'],
+                'password': cfg['minecraft']['password'],
+                'bufsize': 4096,  # size of socket buffer
+                'sock_quit': True,  # stop bot on socket error or hangup
+                'sess_quit': True   # stop bot on failed session login
+            },
             'authenticated': True if cfg['minecraft']['authenticated'] == 'True' else False,
-            'bufsize': 4096,  # size of socket buffer
-            'sock_quit': True,  # stop bot on socket error or hangup
-            'sess_quit': True,  # stop bot on failed session login
             'thread_workers': 5,     # number of workers in the thread pool
             'packet_trace': False,
             'mc_username': "test",

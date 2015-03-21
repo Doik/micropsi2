@@ -14,12 +14,13 @@ class MicropsiPlugin(object):
 
     def __init__(self, ploader, settings):
 
+        ploader.provides('Micropsi', self)
+
         # register required plugins
         self.net = ploader.requires('Net')
         self.event = ploader.requires('Event')
         self.world = ploader.requires('World')
         self.clientinfo = ploader.requires('ClientInfo')
-        self.threadpool = ploader.requires('ThreadPool')
 
         self.inventory = []
         self.quickslots = []
@@ -28,10 +29,6 @@ class MicropsiPlugin(object):
             (3, 0, 48),
             self.update_inventory
         )
-
-        # make references between micropsi world and MicropsiPlugin
-        self.micropsi_world = settings['micropsi_world']
-        self.micropsi_world.spockplugin = self
 
     def chat(self, message):
         if not (self.is_connected()):

@@ -267,8 +267,8 @@ class MinecraftGraphLocomotion(WorldAdapter):
             self.last_slept = self.spockplugin.world.age
 
     def set_datasources(self, event, data):
-        self.datasources['health'] = self.spockplugin.clientinfo.health['health'] / 20
-        self.datasources['food'] = self.spockplugin.clientinfo.health['food'] / 20
+        self.datasources['health'] = self.spockplugin.clientinfo.health.health / 20
+        self.datasources['food'] = self.spockplugin.clientinfo.health.food / 20
 
     def update_data_sources_and_targets(self):
         """called on every world simulation step to advance the life of the agent"""
@@ -280,12 +280,12 @@ class MinecraftGraphLocomotion(WorldAdapter):
         if self.waiting_for_spock:
             # by substitution: spock init is considered done, when its client has a position unlike
             # {'on_ground': False, 'pitch': 0, 'x': 0, 'y': 0, 'yaw': 0, 'stance': 0, 'z': 0}:
-            if self.spockplugin.clientinfo.position['y'] != 0. \
-                    and self.spockplugin.clientinfo.position['x'] != 0:
+            if self.spockplugin.clientinfo.position.y != 0. \
+                    and self.spockplugin.clientinfo.position.x != 0:
                 self.waiting_for_spock = False
-                x = int(self.spockplugin.clientinfo.position['x'])
-                y = int(self.spockplugin.clientinfo.position['y'])
-                z = int(self.spockplugin.clientinfo.position['z'])
+                x = int(self.spockplugin.clientinfo.position.x)
+                y = int(self.spockplugin.clientinfo.position.y)
+                z = int(self.spockplugin.clientinfo.position.z)
                 for k, v in self.loco_nodes.items():
                     if abs(x - v['x']) <= self.tp_tolerance and abs(y - v['y']) <= self.tp_tolerance and abs(z - v['z']) <= self.tp_tolerance:
                         self.current_loco_node = self.loco_nodes[k]
@@ -295,12 +295,12 @@ class MinecraftGraphLocomotion(WorldAdapter):
                     # bot is outside our graph, teleport to a random graph location to get started.
                     target = random.choice(list(self.loco_nodes.keys()))
                     self.locomote(target)
-                self.spockplugin.clientinfo.position['pitch'] = 0
-                self.spockplugin.clientinfo.position['yaw'] = 0
+                self.spockplugin.clientinfo.position.pitch = 0
+                self.spockplugin.clientinfo.position.yaw = 0
 
         else:
-            self.spockplugin.clientinfo.position['pitch'] = (self.spockplugin.clientinfo.position['pitch'] + 1) % 10  # range in 0;10
-            self.spockplugin.clientinfo.position['yaw'] = (self.spockplugin.clientinfo.position['pitch'] + 1) % 10  # range in 0;10
+            self.spockplugin.clientinfo.position.pitch = (self.spockplugin.clientinfo.position.pitch + 1) % 10  # range in 0;10
+            self.spockplugin.clientinfo.position.yaw = (self.spockplugin.clientinfo.position.pitch + 1) % 10  # range in 0;10
 
             #
             orientation = self.datatargets['orientation']  # x_axis + 360 / orientation  degrees
@@ -320,8 +320,8 @@ class MinecraftGraphLocomotion(WorldAdapter):
             # depending on whether they fire continuously or not, see self.datatarget_history
 
             # health and food are in [0;20]
-            self.datasources['health'] = self.spockplugin.clientinfo.health['health'] / 20
-            self.datasources['food'] = self.spockplugin.clientinfo.health['food'] / 20
+            self.datasources['health'] = self.spockplugin.clientinfo.health.health / 20
+            self.datasources['food'] = self.spockplugin.clientinfo.health.food / 20
             if self.spockplugin.get_temperature() is not None:
                 self.datasources['temperature'] = self.spockplugin.get_temperature()
             self.datasources['food_supply'] = self.spockplugin.count_inventory_item(297)  # count bread
@@ -372,7 +372,7 @@ class MinecraftGraphLocomotion(WorldAdapter):
                     self.register_action(
                         'eat',
                         self.spockplugin.eat,
-                        partial(self.check_eat_feedback, self.spockplugin.clientinfo.health['food'])
+                        partial(self.check_eat_feedback, self.spockplugin.clientinfo.health.food)
                     )
                 else:
                     self.datatarget_feedback['eat'] = -1.
@@ -454,13 +454,13 @@ class MinecraftGraphLocomotion(WorldAdapter):
         return False
 
     def check_eat_feedback(self, old_value):
-        food = self.spockplugin.clientinfo.health['food']
+        food = self.spockplugin.clientinfo.health.food
         return food > old_value or food == 20
 
     def check_movement_feedback(self, target_loco_node):
-        if abs(self.loco_nodes[target_loco_node]['x'] - int(self.spockplugin.clientinfo.position['x'])) <= self.tp_tolerance \
-           and abs(self.loco_nodes[target_loco_node]['y'] - int(self.spockplugin.clientinfo.position['y'])) <= self.tp_tolerance \
-           and abs(self.loco_nodes[target_loco_node]['z'] - int(self.spockplugin.clientinfo.position['z'])) <= self.tp_tolerance:
+        if abs(self.loco_nodes[target_loco_node]['x'] - int(self.spockplugin.clientinfo.position.x)) <= self.tp_tolerance \
+           and abs(self.loco_nodes[target_loco_node]['y'] - int(self.spockplugin.clientinfo.position.y)) <= self.tp_tolerance \
+           and abs(self.loco_nodes[target_loco_node]['z'] - int(self.spockplugin.clientinfo.position.z)) <= self.tp_tolerance:
             # hand the agent a bread, if it just arrived at the farm, or at the village
             if target_loco_node == self.village_uid or target_loco_node == self.farm_uid:
                 self.spockplugin.give_item('bread')
@@ -507,14 +507,14 @@ class MinecraftGraphLocomotion(WorldAdapter):
         from math import radians, tan
 
         # set agent position
-        pos_x = self.spockplugin.clientinfo.position['x']
-        pos_y = self.spockplugin.clientinfo.position['y'] + 0.620  # add some stance to y pos ( which is ground + 1 )
-        pos_z = self.spockplugin.clientinfo.position['z']
+        pos_x = self.spockplugin.clientinfo.position.x
+        pos_y = self.spockplugin.clientinfo.position.y + 0.620  # add some stance to y pos ( which is ground + 1 )
+        pos_z = self.spockplugin.clientinfo.position.z
 
         # set yaw and pitch ( in degrees )
-        yaw = self.spockplugin.clientinfo.position['yaw']
+        yaw = self.spockplugin.clientinfo.position.yaw
         # consider setting yaw to a random value between 0 and 359
-        pitch = self.spockplugin.clientinfo.position['pitch']
+        pitch = self.spockplugin.clientinfo.position.pitch
 
         # compute ticks per dimension
         tick_w = self.cam_width / self.im_width / self.resolution

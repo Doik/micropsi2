@@ -61,11 +61,11 @@ class MicropsiPlugin(object):
             ground_offset = -1
 
         if ground_offset < 2:
-            self.clientinfo.position['x'] = target_coords['x'] + .5
-            self.clientinfo.position['y'] = target_coords['y'] + ground_offset
-            self.clientinfo.position['stance'] = target_coords['y'] + ground_offset + STANCE_ADDITION
-            self.clientinfo.position['z'] = target_coords['z'] + .5
-            self.clientinfo.position['on_ground'] = True
+            self.clientinfo.position.x = target_coords['x'] + .5
+            self.clientinfo.position.y = target_coords['y'] + ground_offset
+            self.clientinfo.position.stance = target_coords['y'] + ground_offset + STANCE_ADDITION
+            self.clientinfo.position.z = target_coords['z'] + .5
+            self.clientinfo.position.on_ground = True
 
     def get_block_type(self, x, y, z):
         """ Jonas' get_voxel_blocktype(..) """
@@ -158,7 +158,7 @@ class MicropsiPlugin(object):
 
     def get_int_coordinates(self):
         return {
-            'x': int(self.clientinfo.position['x']),
-            'y': int(self.clientinfo.position['y']),
-            'z': int(self.clientinfo.position['z'])
+            'x': int(self.clientinfo.position.x),
+            'y': int(self.clientinfo.position.y),
+            'z': int(self.clientinfo.position.z)
         }

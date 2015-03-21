@@ -332,11 +332,11 @@ class MinecraftWorldAdapter(WorldAdapter):
 
     def initialize_worldobject(self, data):
 
-        self.datasources['x'] = self.world.spockplugin.clientinfo.position['x']
-        self.datasources['y'] = self.world.spockplugin.clientinfo.position['y']
-        self.datasources['z'] = self.world.spockplugin.clientinfo.position['z']
-        self.datasources['yaw'] = self.world.spockplugin.clientinfo.position['yaw']
-        self.datasources['pitch'] = self.world.spockplugin.clientinfo.position['pitch']
+        self.datasources['x'] = self.world.spockplugin.clientinfo.position.x
+        self.datasources['y'] = self.world.spockplugin.clientinfo.position.y
+        self.datasources['z'] = self.world.spockplugin.clientinfo.position.z
+        self.datasources['yaw'] = self.world.spockplugin.clientinfo.position.yaw
+        self.datasources['pitch'] = self.world.spockplugin.clientinfo.position.pitch
         self.datasources['groundtype'] = self.get_groundtype()
 
     def update_data_sources_and_targets(self):
@@ -360,11 +360,11 @@ class MinecraftWorldAdapter(WorldAdapter):
         self.world.spockplugin.move(position=position)
 
         # get new datasources
-        self.datasources['x'] = self.world.spockplugin.clientinfo.position['x']
-        self.datasources['y'] = self.world.spockplugin.clientinfo.position['y']
-        self.datasources['z'] = self.world.spockplugin.clientinfo.position['z']
-        self.datasources['yaw'] = self.world.spockplugin.clientinfo.position['yaw']
-        self.datasources['pitch'] = self.world.spockplugin.clientinfo.position['pitch']
+        self.datasources['x'] = self.world.spockplugin.clientinfo.position.x
+        self.datasources['y'] = self.world.spockplugin.clientinfo.position.y
+        self.datasources['z'] = self.world.spockplugin.clientinfo.position.z
+        self.datasources['yaw'] = self.world.spockplugin.clientinfo.position.yaw
+        self.datasources['pitch'] = self.world.spockplugin.clientinfo.position.pitch
         self.datasources['groundtype'] = self.get_groundtype()
 
     def translate_datatargets_to_xz(self):
@@ -420,9 +420,9 @@ class MinecraftBraitenberg(WorldAdapter):
     def update_data_sources_and_targets(self):
         """called on every world simulation step to advance the life of the agent"""
         # find diamond
-        bot_x = self.world.spockplugin.clientinfo.position['x']
-        bot_y = self.world.spockplugin.clientinfo.position['y']
-        bot_z = self.world.spockplugin.clientinfo.position['z']
+        bot_x = self.world.spockplugin.clientinfo.position.x
+        bot_y = self.world.spockplugin.clientinfo.position.y
+        bot_z = self.world.spockplugin.clientinfo.position.z
         bot_coords = (bot_x, bot_y, bot_z)
         x_chunk = bot_x // 16
         z_chunk = bot_z // 16

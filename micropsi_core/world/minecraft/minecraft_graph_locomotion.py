@@ -4,6 +4,7 @@ import random
 import logging
 import time
 from functools import partial
+from math import sqrt, radians, cos, sin, tan
 from spock.mcp.mcpacket import Packet
 
 
@@ -13,26 +14,27 @@ class MinecraftGraphLocomotion(WorldAdapter):
         'fov_x',    # fovea sensors receive their input from the fovea actors
         'fov_y',
         'fov_hist__-01',  # these names must be the most commonly observed block types
+        'fov_hist__000',
         'fov_hist__001',
         'fov_hist__002',
         'fov_hist__003',
         'fov_hist__004',
+        'fov_hist__009',
         'fov_hist__012',
         'fov_hist__017',
         'fov_hist__018',
         'fov_hist__020',
+        'fov_hist__026',
         'fov_hist__031',
         'fov_hist__064',
-        'fov_hist__078',
-        'fov_hist__081',
-        'fov_hist__102',
         'fov_hist__106',
         'health',
         'food',
         'temperature',
         'food_supply',
         'fatigue',
-        'hack_situation'
+        'hack_situation',
+        'hack_decay_factor'
     ]
 
     supported_datatargets = [
@@ -42,6 +44,8 @@ class MinecraftGraphLocomotion(WorldAdapter):
         'take_exit_three',
         'fov_x',
         'fov_y',
+        'pitch',
+        'yaw',
         'eat',
         'sleep'
     ]
@@ -181,14 +185,19 @@ class MinecraftGraphLocomotion(WorldAdapter):
     logger = None
 
     # specs for vision /fovea
-    focal_length = 1  # distance of image plane from projective point /fovea
-    max_dist = 200    # maximum distance for raytracing
-    resolution = 4    # number of rays per tick in viewport /camera coordinate system
-    im_width = 32     # width of projection /image plane in the world
-    im_height = 16    # height of projection /image plane in the world
+    # focal length larger 0 means zoom in, smaller 0 means zoom out
+    # ( small values of focal length distort the image if things are close )
+    # image proportions define the part of the world that can be viewed
+    # patch dimensions define the size of the sampled patch that's stored to file
+    focal_length = 0.5   # distance of image plane from projective point /fovea
+    max_dist = 64     # maximum distance for raytracing
+    resolution = 1.    # number of rays per tick in viewport /camera coordinate system
+    im_width = 128     # width of projection /image plane in the world
+    im_height = 64     # height of projection /image plane in the world
     cam_width = 1.    # width of normalized device /camera /viewport
     cam_height = 1.   # height of normalized device /camera /viewport
-    patch_len = 16    # side length of a fovea patch
+    patch_width = 32  # width of a fovea patch  # 128
+    patch_height = 32  # height of a patch  # 64
 
     # Note: actors fov_x, fov_y and the saccader's gates fov_x, fov_y ought to be parametrized [0.,2.] w/ threshold 1.
     # -- 0. means inactivity, values between 1. and 2. are the scaled down movement in x/y direction on the image plane
@@ -207,21 +216,11 @@ class MinecraftGraphLocomotion(WorldAdapter):
             'sleep': 0
         }
 
-        # prevent instabilities in datatargets: treat a continuous ( /unintermittent ) signal as a single trigger
-        self.datatarget_history = {
-            'take_exit_one': 0,
-            'take_exit_two': 0,
-            'take_exit_three': 0,
-            'fov_x': 0,
-            'fov_y': 0,
-            'eat': 0,
-            'sleep': 0
-        }
-
         self.datasources['health'] = 1
         self.datasources['food'] = 1
         self.datasources['temperature'] = 0.5
         self.datasources['hack_situation'] = -1
+        self.datasources['hack_decay_factor'] = 1
 
         # a collection of conditions to check on every update(..), eg., for action feedback
         self.waiting_list = []
@@ -238,12 +237,11 @@ class MinecraftGraphLocomotion(WorldAdapter):
         self.logger = logging.getLogger("world")
         self.spockplugin.event.reg_event_handler('PLAY<Spawn Position', self.set_datasources)
         self.spockplugin.event.reg_event_handler('PLAY<Player Position and Look', self.server_set_position)
-        self.spockplugin.event.reg_event_handler('PLAY<Use Bed', self.server_use_bed)
         self.spockplugin.event.reg_event_handler('PLAY<Chat Message', self.server_chat_message)
 
         # add datasources for fovea
-        for i in range(self.patch_len):
-            for j in range(self.patch_len):
+        for i in range(self.patch_height):
+            for j in range(self.patch_width):
                 name = "fov__%02d_%02d" % (i, j)
                 self.datasources[name] = 0.
 
@@ -253,16 +251,12 @@ class MinecraftGraphLocomotion(WorldAdapter):
                 self.datatarget_feedback['sleep'] = -1
                 self.sleeping = False
 
-    def server_use_bed(self, event, data):
-        # TODO: check if it's us, that has gone to sleep
-        # Currently however there's an issue parsing the use-bed packet from the
-        # server. we'll just assume it's us.
-        # if data.data['eid'] == self.spockplugin.clientinfo.eid
-        self.sleeping = True
-
     def server_set_position(self, event, data):
         """ Interprete this as waking up, if we're sleeping, and it's morning"""
-        if self.sleeping and abs(24000 * round(self.spockplugin.world.time_of_day / 24000) - self.spockplugin.world.time_of_day) < 1200:
+        if (abs(round(data.data['x']) + 102.5)) < 1 and (abs(round(data.data['z']) - 59.5) < 1):
+            # server set our position to bed
+            self.sleeping = True
+        elif self.sleeping:
             self.sleeping = False
             self.last_slept = self.spockplugin.world.age
 
@@ -275,6 +269,8 @@ class MinecraftGraphLocomotion(WorldAdapter):
 
         if not self.spockplugin.is_connected():
             raise RuntimeError("Lost connection to minecraft server")
+
+        self.datasources['hack_decay_factor'] = 0 if self.sleeping else 1
 
         # first thing when spock initialization is done, determine current loco node
         if self.waiting_for_spock:
@@ -299,25 +295,44 @@ class MinecraftGraphLocomotion(WorldAdapter):
                 self.spockplugin.clientinfo.position.yaw = 0
 
         else:
-            self.spockplugin.clientinfo.position.pitch = (self.spockplugin.clientinfo.position.pitch + 1) % 10  # range in 0;10
-            self.spockplugin.clientinfo.position.yaw = (self.spockplugin.clientinfo.position.pitch + 1) % 10  # range in 0;10
-
-            #
-            orientation = self.datatargets['orientation']  # x_axis + 360 / orientation  degrees
-            self.datatarget_feedback['orientation'] = 1
-            # self.datatargets['orientation'] = 0
-
-            # reset self.datasources
-            # for k in self.datasources.keys():
-                # if k != 'hack_situation' and k != 'temperature':
-                    # self.datasources[k] = 0.
-
             # reset self.datatarget_feedback
             for k in self.datatarget_feedback.keys():
                 self.datatarget_feedback[k] = 0.
 
-            # don't reset self.datatargets because their activation is processed differently
-            # depending on whether they fire continuously or not, see self.datatarget_history
+            # change pitch and yaw every x world steps to increase sensory variation
+            # < ensures some stability to enable learning in the autoencoder
+            if self.world.current_step % 5 == 0:
+                # for patches pitch = 10 and yaw = random.randint(-10,10) were used
+                # for visual field pitch = randint(0, 30) and yaw = randint(1, 360) were used
+                self.spockplugin.clientinfo.position['pitch'] = 10
+                self.spockplugin.clientinfo.position['yaw'] = random.randint(-10, 10)
+                self.datatargets['pitch'] = self.spockplugin.clientinfo.position['pitch']
+                self.datatargets['yaw'] = self.spockplugin.clientinfo.position['yaw']
+                self.datatarget_feedback['pitch'] = 1.0
+                self.datatarget_feedback['yaw'] = 1.0
+
+            #
+            orientation = self.datatargets['orientation']  # x_axis + 360 / orientation  degrees
+            self.datatarget_feedback['orientation'] = 1.0
+            # self.datatargets['orientation'] = 0
+
+            # reset self.datasources
+            # for k in self.datasources.keys():
+            #     if k != 'hack_situation' and k != 'temperature':
+            #         self.datasources[k] = 0.
+
+            # sample all the time
+            # update fovea sensors, get sensory input, provide action feedback
+            # make sure fovea datasources don't go below 0.
+            self.datasources['fov_x'] = self.datatargets['fov_x'] - 1. if self.datatargets['fov_x'] > 0. else 0.
+            self.datasources['fov_y'] = self.datatargets['fov_y'] - 1. if self.datatargets['fov_y'] > 0. else 0.
+            loco_label = self.current_loco_node['name']  # because python uses call-by-object
+            self.get_visual_input(self.datasources['fov_x'], self.datasources['fov_y'], loco_label)
+            # Note: saccading can't fail because fov_x, fov_y are internal actors, hence we return immediate feedback
+            if self.datatargets['fov_x'] > 0.0:
+                self.datatarget_feedback['fov_x'] = 1.0
+            if self.datatargets['fov_y'] > 0.0:
+                self.datatarget_feedback['fov_y'] = 1.0
 
             # health and food are in [0;20]
             self.datasources['health'] = self.spockplugin.clientinfo.health.health / 20
@@ -330,13 +345,15 @@ class MinecraftGraphLocomotion(WorldAdapter):
             # timeofday = self.spockplugin.world.time_of_day % 24000
             no_sleep = ((self.spockplugin.world.age - self.last_slept) // 3000) / 2
             fatigue = no_sleep * 0.2
+            if self.sleeping:
+                fatigue = 0
             self.datasources['fatigue'] = fatigue
 
             self.check_for_action_feedback()
 
             # read locomotor values, trigger teleportation in the world, and provide action feedback
             # don't trigger another teleportation if the datatargets was on continuously, cf. pipe logic
-            if self.datatargets['take_exit_one'] >= 1 and not self.datatarget_history['take_exit_one'] >= 1:
+            if self.datatargets['take_exit_one'] >= 1:
                 # if the current node on the transition graph has the selected exit
                 if self.current_loco_node['exit_one_uid'] is not None:
                     self.register_action(
@@ -347,7 +364,7 @@ class MinecraftGraphLocomotion(WorldAdapter):
                 else:
                     self.datatarget_feedback['take_exit_one'] = -1.
 
-            if self.datatargets['take_exit_two'] >= 1 and not self.datatarget_history['take_exit_two'] >= 1:
+            if self.datatargets['take_exit_two'] >= 1:
                 if self.current_loco_node['exit_two_uid'] is not None:
                     self.register_action(
                         'take_exit_two',
@@ -357,7 +374,7 @@ class MinecraftGraphLocomotion(WorldAdapter):
                 else:
                     self.datatarget_feedback['take_exit_two'] = -1.
 
-            if self.datatargets['take_exit_three'] >= 1 and not self.datatarget_history['take_exit_three'] >= 1:
+            if self.datatargets['take_exit_three'] >= 1:
                 if self.current_loco_node['exit_three_uid'] is not None:
                     self.register_action(
                         'take_exit_three',
@@ -367,7 +384,7 @@ class MinecraftGraphLocomotion(WorldAdapter):
                 else:
                     self.datatarget_feedback['take_exit_three'] = -1.
 
-            if self.datatargets['eat'] >= 1 and not self.datatarget_history['eat'] >= 1:
+            if self.datatargets['eat'] >= 1:
                 if self.has_bread() and self.datasources['food'] < 1:
                     self.register_action(
                         'eat',
@@ -377,29 +394,12 @@ class MinecraftGraphLocomotion(WorldAdapter):
                 else:
                     self.datatarget_feedback['eat'] = -1.
 
-            if self.datatargets['sleep'] >= 1 and not self.datatarget_history['sleep'] >= 1:
-                if self.check_movement_feedback(self.home_uid):
-                    # if self.datasources['fatigue'] > 0:
-                        # urge is only active at night, so we can sleep now:
+            if self.datatargets['sleep'] >= 1:
+                if self.check_movement_feedback(self.home_uid) and self.spockplugin.world.time_of_day % 24000 > 12500:
+                    # we're home and it's night, so we can sleep now:
                     self.register_action('sleep', self.sleep, self.check_waking_up)
                 else:
-                    self.datatarget_feedback['sleep'] = -1
-
-            # sample all the time
-            # update fovea sensors, get sensory input, provide action feedback
-            self.datasources['fov_x'] = self.datatargets['fov_x'] - 1.
-            self.datasources['fov_y'] = self.datatargets['fov_y'] - 1.
-            self.get_visual_input(self.datasources['fov_x'], self.datasources['fov_y'])
-            # Note: saccading can't fail because fov_x, fov_y are internal actors, hence we return immediate feedback
-            self.datatarget_feedback['fov_x'] = 1
-            self.datatarget_feedback['fov_y'] = 1
-
-            # impatience!
-            self.check_for_action_feedback()
-
-            # update datatarget history
-            for k in self.datatarget_history.keys():
-                self.datatarget_history[k] = self.datatargets[k]
+                    self.datatarget_feedback['sleep'] = -1.
 
     def locomote(self, target_loco_node_uid):
         new_loco_node = self.loco_nodes[target_loco_node_uid]
@@ -425,14 +425,6 @@ class MinecraftGraphLocomotion(WorldAdapter):
                     self.datatarget_feedback[item['datatarget']] = 1.
                 else:
                     new_waiting_list.append(item)
-
-            for item in new_waiting_list:
-                if time.clock() - item['time'] > self.action_timeout:
-                    # re-trigger action
-                    if item['datatarget'] != 'sleep':
-                        self.logger.debug('re-triggering last action')
-                        item['action']()
-                    item['time'] = time.clock()
 
             self.waiting_list = new_waiting_list
 
@@ -497,15 +489,13 @@ class MinecraftGraphLocomotion(WorldAdapter):
         }
         self.spockplugin.net.push(Packet(ident='PLAY>Player Block Placement', data=data))
 
-    def get_visual_input(self, fov_x, fov_y):
+    def get_visual_input(self, fov_x, fov_y, label):
         """
         Spans an image plane.
 
         Note that the image plane is walked left to right, top to bottom ( before rotation )!
         This means that fov__00_00 gets the top left pixel, fov__15_15 gets the bottom right pixel.
         """
-        from math import radians, tan
-
         # set agent position
         pos_x = self.spockplugin.clientinfo.position.x
         pos_y = self.spockplugin.clientinfo.position.y + 0.620  # add some stance to y pos ( which is ground + 1 )
@@ -526,8 +516,8 @@ class MinecraftGraphLocomotion(WorldAdapter):
         v_line = [i for i in self.frange(pos_y - 0.05 * self.cam_height, pos_y + 0.95 * self.cam_height, tick_h)]
 
         # scale up fov_x, fov_y
-        fov_x = round(fov_x * (self.im_width * self.resolution - self.patch_len))
-        fov_y = round(fov_y * (self.im_height * self.resolution - self.patch_len))
+        fov_x = round(fov_x * (self.im_width * self.resolution - self.patch_width))
+        fov_y = round(fov_y * (self.im_height * self.resolution - self.patch_height))
 
         x0, y0, z0 = pos_x, pos_y, pos_z  # agent's position aka projective point
         zi = z0 + self.focal_length
@@ -536,8 +526,8 @@ class MinecraftGraphLocomotion(WorldAdapter):
 
         # compute block type values for the whole patch /fovea
         patch = []
-        for i in range(self.patch_len):
-            for j in range(self.patch_len):
+        for i in range(self.patch_height):
+            for j in range(self.patch_width):
                 try:
                     block_type, distance = self.project(h_line[fov_x + j], v_line[fov_y + i], zi, x0, y0, z0, yaw, pitch)
                 except IndexError:
@@ -547,7 +537,7 @@ class MinecraftGraphLocomotion(WorldAdapter):
 
         # write block type histogram values to self.datasources['fov_hist__*']
         # for every block type seen in patch, if there's a datasource for it, fill it with its normalized frequency
-        normalizer = self.patch_len ** 2
+        normalizer = self.patch_width * self.patch_height
         for bt in set(patch):
             name = "fov_hist__%03d" % bt
             if name in self.datasources:
@@ -572,10 +562,10 @@ class MinecraftGraphLocomotion(WorldAdapter):
         patch_resc = [(1 + x) * 0.4 + 0.1 for x in patch_std]
 
         # write values to self.datasources['fov__']
-        for i in range(self.patch_len):
-            for j in range(self.patch_len):
+        for i in range(self.patch_height):
+            for j in range(self.patch_width):
                 name = 'fov__%02d_%02d' % (i, j)
-                self.datasources[name] = patch_resc[self.patch_len * i + j]
+                self.datasources[name] = patch_resc[self.patch_height * i + j]
 
     def project(self, xi, yi, zi, x0, y0, z0, yaw, pitch):
         """
@@ -583,11 +573,8 @@ class MinecraftGraphLocomotion(WorldAdapter):
         ray to find the nearest block type that isn't air and its distance from
         the projective plane.
         """
-        from math import sqrt
-
         distance = 0    # just a counter
-        block_type = -1
-        xb, yb, zb = xi, yi, zi
+        block_type = -1  # consider mapping nothingness to air, ie. -1 to 0
 
         # compute difference vector between projective point and image point
         diff = (xi - x0, yi - y0, zi - z0)
@@ -609,19 +596,16 @@ class MinecraftGraphLocomotion(WorldAdapter):
         # add diff to projection point aka agent's position
         xb, yb, zb = x0 + diff[0], y0 + diff[1], z0 + diff[2]
 
-        while block_type <= 0:  # which is air
+        while block_type <= 0:  # which is air and nothingness
 
             # check block type of next distance point along ray
             # aka add normalized difference vector to image point
-            xb = xb + norm[0]
-            yb = yb + norm[1]
-            zb = zb + norm[2]
+            # TODO: consider a more efficient way to move on the ray, eg. a log scale
+            xb += norm[0]
+            yb += norm[1]
+            zb += norm[2]
 
-            block_type = self.spockplugin.get_block_type(
-                int(xb),
-                int(yb),
-                int(zb),
-            )
+            block_type = self.spockplugin.get_block_type(xb, yb, zb)
 
             distance += 1
             if distance >= self.max_dist:
@@ -631,45 +615,42 @@ class MinecraftGraphLocomotion(WorldAdapter):
 
     def rotate_around_x_axis(self, pos, angle):
         """ Rotate a 3D point around the x-axis given a specific angle. """
-        from math import radians, cos, sin
 
         # convert angle in degrees to radians
         theta = radians(angle)
 
         # rotate vector
-        x = pos[0]
-        y = pos[1] * cos(theta) - pos[2] * sin(theta)
-        z = pos[1] * sin(theta) + pos[2] * cos(theta)
+        xx, y, z = pos
+        yy = y * cos(theta) - z * sin(theta)
+        zz = y * sin(theta) + z * cos(theta)
 
-        return (x, y, z)
+        return (xx, yy, zz)
 
     def rotate_around_y_axis(self, pos, angle):
         """ Rotate a 3D point around the y-axis given a specific angle. """
-        from math import radians, cos, sin
 
         # convert angle in degrees to radians
         theta = radians(angle)
 
         # rotate vector
-        x = pos[0] * cos(theta) + pos[2] * sin(theta)
-        y = pos[1]
-        z = - pos[0] * sin(theta) + pos[2] * cos(theta)
+        x, yy, z = pos
+        xx = x * cos(theta) + z * sin(theta)
+        zz = - x * sin(theta) + z * cos(theta)
 
-        return (x, y, z)
+        return (xx, yy, zz)
 
     def rotate_around_z_axis(self, pos, angle):
         """ Rotate a 3D point around the z-axis given a specific angle. """
-        from math import radians, cos, sin
 
         # convert angle in degrees to radians
         theta = radians(angle)
 
         # rotate vector
-        x = pos[0] * cos(theta) - pos[1] * sin(theta)
-        y = pos[0] * sin(theta) + pos[1] * cos(theta)
-        z = pos[2]
+        x, y, zz = pos
+        xx = x * cos(theta) - y * sin(theta)
+        yy = x * sin(theta) + y * cos(theta)
 
-        return (x, y, z)
+        return (xx, yy, zz)
 
     def frange(self, start, end, step):
         """

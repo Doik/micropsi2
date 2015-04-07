@@ -788,12 +788,6 @@ def test_get_available_node_types(app, test_nodenet):
     assert 'Sensor' in response.json_body['data']
 
 
-def test_get_available_node_types_without_nodenet_uid(app, test_nodenet):
-    response = app.get_json('/rpc/get_available_node_types()')
-    assert_success(response)
-    assert 'Concept' in response.json_body['data']
-
-
 def test_get_available_native_module_types(app, test_nodenet):
     response = app.get_json('/rpc/get_available_native_module_types(nodenet_uid="%s")' % test_nodenet)
     assert_success(response)
@@ -1066,6 +1060,41 @@ def test_500(app):
     assert_failure(response)
     assert "unexpected keyword argument" in response.json_body['data']
     assert response.json_body['traceback'] is not None
+
+
+def test_get_recipes(app, test_nodenet, recipes_def):
+    app.set_auth()
+    with open(recipes_def, 'w') as fp:
+        fp.write("""
+def foobar(netapi, quatsch=23):
+    return quatsch
+""")
+    response = app.get_json('/rpc/reload_native_modules(nodenet_uid="%s")' % test_nodenet)
+    response = app.get_json('/rpc/get_available_recipes()')
+    data = response.json_body['data']
+    assert 'foobar' in data
+    assert len(data['foobar']['parameters']) == 1
+    assert data['foobar']['parameters'][0]['name'] == 'quatsch'
+    assert data['foobar']['parameters'][0]['default'] == 23
+
+
+def test_run_recipes(app, test_nodenet, recipes_def):
+    app.set_auth()
+    with open(recipes_def, 'w') as fp:
+        fp.write("""
+def foobar(netapi, quatsch=23):
+    return quatsch
+""")
+    response = app.get_json('/rpc/reload_native_modules(nodenet_uid="%s")' % test_nodenet)
+    response = app.post_json('/rpc/run_recipe', {
+        'nodenet_uid': test_nodenet,
+        'name': 'foobar',
+        'parameters': {
+            'quatsch': ''
+        }
+    })
+    data = response.json_body['data']
+    assert data == 23
 
 
 def test_nodenet_data_structure(app, test_nodenet, nodetype_def, nodefunc_def):

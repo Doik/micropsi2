@@ -7,6 +7,7 @@ from webtest import TestApp
 
 import configuration
 configuration.RESOURCE_PATH = '/tmp/micropsi_tests'
+configuration.SERVER_SETTINGS_PATH = '/tmp/micropsi_tests'
 
 from micropsi_core import runtime as micropsi
 
@@ -40,6 +41,11 @@ def nodetype_def():
 @pytest.fixture
 def nodefunc_def():
     return os.path.join(configuration.RESOURCE_PATH, 'nodefunctions.py')
+
+
+@pytest.fixture
+def recipes_def():
+    return os.path.join(configuration.RESOURCE_PATH, 'recipes.py')
 
 
 def set_logging_levels():

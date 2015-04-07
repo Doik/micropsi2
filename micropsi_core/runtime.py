@@ -14,7 +14,7 @@ __date__ = '10.05.12'
 
 from configuration import RESOURCE_PATH, SERVER_SETTINGS_PATH, LOGGING
 
-from micropsi_core.nodenet.node import Node, Nodetype, STANDARD_NODETYPES
+from micropsi_core.nodenet.node import Node, Nodetype
 from micropsi_core.nodenet.nodenet import Nodenet
 from micropsi_core.nodenet.nodespace import Nodespace
 
@@ -23,8 +23,6 @@ from copy import deepcopy
 from micropsi_core.nodenet import node_alignment
 from micropsi_core import config
 from micropsi_core.tools import Bunch
-
-from micropsi_core.nodenet.dict_engine.dict_nodenet import DictNodenet
 
 import os
 import sys
@@ -47,8 +45,8 @@ configs = config.ConfigurationManager(SERVER_SETTINGS_PATH)
 
 worlds = {}
 nodenets = {}
-nodetypes = STANDARD_NODETYPES
 native_modules = {}
+custom_recipes = {}
 
 runner = {'timestep': 1000, 'runner': None, 'factor': 1}
 
@@ -274,12 +272,22 @@ def load_nodenet(nodenet_uid):
 
             engine = data.get('engine', 'dict_engine')
 
+            #engine = "theano_engine"
+
             if engine == 'dict_engine':
+                from micropsi_core.nodenet.dict_engine.dict_nodenet import DictNodenet
                 nodenets[nodenet_uid] = DictNodenet(
                     os.path.join(RESOURCE_PATH, NODENET_DIRECTORY, nodenet_uid + '.json'),
                     name=data.name, worldadapter=worldadapter,
                     world=world, owner=data.owner, uid=data.uid,
-                    nodetypes=nodetypes, native_modules=native_modules)
+                    native_modules=native_modules)
+            elif engine == 'theano_engine':
+                from micropsi_core.nodenet.theano_engine.theano_nodenet import TheanoNodenet
+                nodenets[nodenet_uid] = TheanoNodenet(
+                    os.path.join(RESOURCE_PATH, NODENET_DIRECTORY, nodenet_uid + '.json'),
+                    name=data.name, worldadapter=worldadapter,
+                    world=world, owner=data.owner, uid=data.uid,
+                    native_modules=native_modules)
             # Add additional engine types here
             else:
                 nodenet_lock.release()
@@ -307,7 +315,7 @@ def get_nodenet_data(nodenet_uid, nodespace, coordinates):
         data = nodenet.data
     data.update(get_nodenet_area(nodenet_uid, nodespace, **coordinates))
     data.update({
-        'nodetypes': nodetypes,
+        'nodetypes': nodenet.get_standard_nodetype_definitions(),
         'native_modules': native_modules
     })
     return data
@@ -791,8 +799,8 @@ def clone_nodes(nodenet_uid, node_uids, clonemode, nodespace=None, offset=[50, 5
 
     for _, n in copynodes.items():
         target_nodespace = nodespace if nodespace is not None else n.parent_nodespace
-        success, uid = add_node(nodenet_uid, n.type, (n.position[0] + offset[0], n.position[1] + offset[1]), nodespace=target_nodespace, state=n.clone_state(), uid=None, name=n.name + '_copy', parameters=n.clone_parameters().copy())
-        if success:
+        uid = nodenet.create_node(n.type, target_nodespace, (n.position[0] + offset[0], n.position[1] + offset[1]), name=n.name + '_copy', uid=None, parameters=n.clone_parameters().copy(), gate_parameters=n.get_gate_parameters())
+        if uid:
             uidmap[n.uid] = uid
             result['nodes'].append(nodenet.get_node(uid).data)
         else:
@@ -867,10 +875,11 @@ def delete_node(nodenet_uid, node_uid):
     return False
 
 
-def get_available_node_types(nodenet_uid=None):
+def get_available_node_types(nodenet_uid):
     """Returns a list of available node types. (Including native modules.)"""
+    nodenet = nodenets[nodenet_uid]
     all_nodetypes = native_modules.copy()
-    all_nodetypes.update(nodetypes)
+    all_nodetypes.update(nodenet.get_standard_nodetype_definitions())
     return all_nodetypes
 
 
@@ -983,6 +992,32 @@ def user_prompt_response(nodenet_uid, node_uid, values, resume_nodenet):
     nodenets[nodenet_uid].is_active = resume_nodenet
 
 
+def get_available_recipes():
+    """ Returns a dict of the available user-recipes """
+    recipes = {}
+    for name, data in custom_recipes.items():
+        recipes[name] = {
+            'name': name,
+            'parameters': data['parameters']
+        }
+    return recipes
+
+
+def run_recipe(nodenet_uid, name, parameters):
+    """ Calls the given recipe with the provided parameters, and returns the output, if any """
+    from functools import partial
+    netapi = nodenets[nodenet_uid].netapi
+    params = {}
+    for key in parameters:
+        if parameters[key] != '':
+            params[key] = parameters[key]
+    if name in custom_recipes:
+        func = custom_recipes[name]['function']
+        return True, func(netapi, **params)
+    else:
+        return False, "Script not found"
+
+
 # --- end of API
 
 def crawl_definition_files(path, type="definition"):
@@ -1060,10 +1095,13 @@ def init_worlds(world_data):
 
 def load_user_files(do_reload=False):
     # see if we have additional nodetypes defined by the user.
+    import sys
     global native_modules
     old_native_modules = native_modules.copy()
     native_modules = {}
     custom_nodetype_file = os.path.join(RESOURCE_PATH, 'nodetypes.json')
+    custom_recipe_file = os.path.join(RESOURCE_PATH, 'recipes.py')
+    custom_nodefunctions_file = os.path.join(RESOURCE_PATH, 'nodefunctions.py')
     if os.path.isfile(custom_nodetype_file):
         try:
             with open(custom_nodetype_file) as fp:
@@ -1071,12 +1109,40 @@ def load_user_files(do_reload=False):
         except ValueError:
             warnings.warn("Nodetype data in %s not well-formed." % custom_nodetype_file)
 
-    # respect user defined nodefunctions:
-    if os.path.isfile(os.path.join(RESOURCE_PATH, 'nodefunctions.py')):
-        import sys
-        sys.path.append(RESOURCE_PATH)
-
+    sys.path.append(RESOURCE_PATH)
+    parse_recipe_file()
     return native_modules
+
+
+def parse_recipe_file():
+    custom_recipe_file = os.path.join(RESOURCE_PATH, 'recipes.py')
+    if not os.path.isfile(custom_recipe_file):
+        return
+
+    import importlib.machinery
+    import inspect
+    global custom_recipes
+
+    loader = importlib.machinery.SourceFileLoader("recipes", custom_recipe_file)
+    recipes = loader.load_module()
+    # import recipes
+    custom_recipes = {}
+    all_functions = inspect.getmembers(recipes, inspect.isfunction)
+    for name, func in all_functions:
+        argspec = inspect.getargspec(func)
+        arguments = argspec.args[1:]
+        defaults = argspec.defaults
+        params = []
+        for i, arg in enumerate(arguments):
+            params.append({
+                'name': arg,
+                'default': defaults[i]
+            })
+        custom_recipes[name] = {
+            'name': name,
+            'parameters': params,
+            'function': func
+        }
 
 
 def reload_native_modules(nodenet_uid=None):

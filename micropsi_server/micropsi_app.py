@@ -557,19 +557,26 @@ def edit_nodenet():
     user_id, permissions, token = get_request_data()
     # nodenet_id = request.params.get('id', None)
     title = 'Edit Nodenet' if id is not None else 'New Nodenet'
+
+    theano_available = True
+    try:
+        import theano
+    except ImportError:
+        theano_available = False
+
     return template("nodenet_form.tpl", title=title,
         # nodenet_uid=nodenet_uid,
         nodenets=runtime.get_available_nodenets(),
         templates=runtime.get_available_nodenets(),
         worlds=runtime.get_available_worlds(),
-        version=VERSION, user_id=user_id, permissions=permissions)
+        version=VERSION, user_id=user_id, permissions=permissions, theano_available=theano_available)
 
 
 @micropsi_app.route("/nodenet/edit", method="POST")
 def write_nodenet():
     user_id, permissions, token = get_request_data()
     if "manage nodenets" in permissions:
-        result, nodenet_uid = runtime.new_nodenet(request.params['nn_name'], worldadapter=request.params['nn_worldadapter'], template=request.params.get('nn_template'), owner=user_id, world_uid=request.params.get('nn_world'))
+        result, nodenet_uid = runtime.new_nodenet(request.params['nn_name'], engine=request.params['nn_engine'], worldadapter=request.params['nn_worldadapter'], template=request.params.get('nn_template'), owner=user_id, world_uid=request.params.get('nn_world'))
         if result:
             return dict(status="success", msg="Nodenet created", nodenet_uid=nodenet_uid)
         else:
@@ -682,7 +689,6 @@ def show_face():
     return template("viewer", mode="face", user_id=user_id, permissions=permissions, token=token, version=VERSION)
 
 
-
 #################################################################
 #
 #
@@ -707,6 +713,7 @@ def load_nodenet(nodenet_uid, nodespace='Root', coordinates={}):
     if result:
         data = runtime.get_nodenet_data(nodenet_uid, nodespace, coordinates)
         data['nodetypes'] = runtime.get_available_node_types(nodenet_uid)
+        data['recipes'] = runtime.get_available_recipes()
         return True, data
     else:
         return False, uid
@@ -1044,7 +1051,7 @@ def align_nodes(nodenet_uid, nodespace):
 
 
 @rpc("get_available_node_types")
-def get_available_node_types(nodenet_uid=None):
+def get_available_node_types(nodenet_uid):
     return True, runtime.get_available_node_types(nodenet_uid)
 
 
@@ -1154,6 +1161,18 @@ def get_logger_messages(logger=[], after=0):
 def get_monitoring_info(nodenet_uid, logger=[], after=0):
     data = runtime.get_monitoring_info(nodenet_uid, logger, after)
     return True, data
+
+
+# --- user scripts ---
+
+@rpc("run_recipe")
+def run_recipe(nodenet_uid, name, parameters):
+    return runtime.run_recipe(nodenet_uid, name, parameters)
+
+
+@rpc('get_available_recipes')
+def get_available_recipes():
+    return True, runtime.get_available_recipes()
 
 
 # -----------------------------------------------------------------------------------------------

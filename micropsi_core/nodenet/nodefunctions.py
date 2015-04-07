@@ -120,12 +120,15 @@ def pipe(netapi, node=None, sheaf="default", **params):
     cat = 0.0
     exp = 0.0
 
-    if node.get_slot("gen").get_activation(sheaf) == 0:                     # only add to loop when not already in it
+    gen += node.get_slot("gen").get_activation(sheaf) * node.get_slot("sub").get_activation(sheaf)
+    if abs(gen) < 0.1: gen = 0                                          # cut off gen loop at lower threshold
+
+    if node.get_slot("por").get_activation(sheaf) == 0 and not node.get_slot("por").empty:
+        gen = 0
+
+    if gen == 0:
         gen += node.get_slot("sur").get_activation(sheaf)
         gen += node.get_slot("exp").get_activation(sheaf)
-    else:
-        gen += node.get_slot("gen").get_activation(sheaf)
-        if abs(gen) < 0.1: gen = 0                                          # cut off gen loop at lower threshold
 
     # commented: trigger and pipes should be able to escape the [-1;1] cage on gen
     # if gen > 1: gen = 1
@@ -141,7 +144,7 @@ def pipe(netapi, node=None, sheaf="default", **params):
 
     sur += node.get_slot("sur").get_activation(sheaf)
     if sur == 0: sur += node.get_slot("sur").get_activation("default")      # no activation in our sheaf, maybe from sensors?
-    if abs(node.get_slot("gen").get_activation(sheaf)) > 0.2:               # cut off sur-reports from gen looping before the loop fades away
+    if abs(node.get_slot("gen").get_activation(sheaf) * node.get_slot("sub").get_activation(sheaf)) > 0.2:               # cut off sur-reports from gen looping before the loop fades away
         sur += 1 if node.get_slot("gen").get_activation(sheaf) > 0 else -1
     sur += node.get_slot("exp").get_activation(sheaf)
 
@@ -165,15 +168,15 @@ def pipe(netapi, node=None, sheaf="default", **params):
     if sur < -1:
         sur = -1
 
-    por += node.get_slot("sur").get_activation(sheaf) * node.get_slot("sub").get_activation(sheaf)
-    por *= node.get_slot("por").get_activation(sheaf) if not node.get_slot("por").empty else 1
+    por += node.get_slot("sur").get_activation(sheaf)
     por += (0 if node.get_slot("gen").get_activation(sheaf) < 0.1 else 1) * \
            (1+node.get_slot("por").get_activation(sheaf))
+    por *= node.get_slot("por").get_activation(sheaf) if not node.get_slot("por").empty else 1  # only por if por
+    por *= node.get_slot("sub").get_activation(sheaf)                                           # only por if sub
     por += node.get_slot("por").get_activation(sheaf) if node.get_slot("sub").get_activation(sheaf) == 0 and node.get_slot("sur").get_activation(sheaf) == 0 else 0
     if por > 0: por = 1
 
     ret += node.get_slot("ret").get_activation(sheaf) if node.get_slot("sub").get_activation(sheaf) == 0 and node.get_slot("sur").get_activation(sheaf) == 0 else 0
-    ret -= node.get_slot("por").get_activation(sheaf)
     if node.get_slot("por").get_activation(sheaf) >= 0:
         ret -= node.get_slot("sub").get_activation(sheaf)
     if ret > 1:
@@ -239,23 +242,27 @@ def trigger(netapi, node=None, sheaf="default", **params):
     else:
         waitfrom = node.get_state("waitfrom") or -1
 
-        timeout = node.get_parameter("timeout") or 10        # todo: use emo_resolution
         condition = node.get_parameter("condition") or "="
-        response = node.get_parameter("response")
-        if response is None:
+        try:
+            timeout = int(node.get_parameter("timeout"))         # todo: use emo_resolution
+        except TypeError or ValueError:
+            timeout = 10
+        try:
+            response = float(node.get_parameter("response"))
+        except TypeError or ValueError:
             response = 1
 
         if node.get_slot('sub').activation > 0:
             currentstep = netapi.step
 
-            success = (condition == "=" and node.get_slot('sur').activation == int(response)) or \
-                      (condition == ">" and node.get_slot('sur').activation > int(response))
+            success = (condition == "=" and node.get_slot('sur').activation == response) or \
+                      (condition == ">" and node.get_slot('sur').activation > response)
 
             if waitfrom > 0:                       # waiting for results
                 if success:
                     sur = 1
                     node.set_state("waitfrom", currentstep)
-                elif currentstep > waitfrom + int(timeout):
+                elif currentstep > waitfrom + timeout or node.get_slot('sur').activation < 0:
                     sur = -1
             else:                                   # perform burst
                 sub = 1
@@ -269,14 +276,18 @@ def trigger(netapi, node=None, sheaf="default", **params):
                 node.set_state("waitfrom", -1)
 
             if node.get_slot('sur').activation:
-                success = (condition == "=" and node.get_slot('sur').activation == int(response)) or \
-                          (condition == ">" and node.get_slot('sur').activation > int(response))
+                success = (condition == "=" and node.get_slot('sur').activation == response) or \
+                          (condition == ">" and node.get_slot('sur').activation > response)
                 if success:
                     sur = 1
 
-    # see pipe implementation: trigger and pipes should be able to
-    # escape the [-1;1] cage on gen
-    gen = node.get_slot('sur').activation + node.get_slot('gen').activation
+    if sur < 0:
+        # if trigger is failing, gen should also propagate failing
+        gen = sur
+    else:
+        # otherwise, gen should be allowed to pass on the original sur-activation
+        # and not be confined to {0;1}
+        gen = node.get_slot('sur').activation + node.get_slot('gen').activation
 
     node.activation = gen
 

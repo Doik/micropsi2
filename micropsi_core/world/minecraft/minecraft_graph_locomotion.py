@@ -150,8 +150,8 @@ class MinecraftGraphLocomotion(WorldAdapter):
     loco_nodes[farm_uid]['x'] = -50
     loco_nodes[farm_uid]['y'] = 64
     loco_nodes[farm_uid]['z'] = 410
-    loco_nodes[farm_uid]['exit_one_uid'] = bungalow_uid
-    loco_nodes[farm_uid]['exit_two_uid'] = cathedral_uid
+    loco_nodes[farm_uid]['exit_one_uid'] = forest_uid
+    loco_nodes[farm_uid]['exit_two_uid'] = forest_uid
     loco_nodes[farm_uid]['exit_three_uid'] = forest_uid
 
     loco_nodes[forest_uid] = loco_node_template.copy()
@@ -333,6 +333,8 @@ class MinecraftGraphLocomotion(WorldAdapter):
                         # bot is outside our graph, teleport to a random graph location to get started.
                         target = random.choice(list(self.loco_nodes.keys()))
                         self.teleport(target)
+                    self.spockplugin.clientinfo.position['pitch'] = 0
+                    self.spockplugin.clientinfo.position['yaw'] = 0
                     # self.teleport(self.village_uid)
             else:
                 self.waiting_for_spock = False
@@ -479,14 +481,16 @@ class MinecraftGraphLocomotion(WorldAdapter):
 
     def locomote(self, target_loco_node_uid):
         new_loco_node = self.loco_nodes[target_loco_node_uid]
-        self.logger.debug('walking to  %s' % new_loco_node['name'])
+        # self.logger.debug('walking to  %s' % new_loco_node['name'])
 
         yaw = self.look_towards(new_loco_node)
 
+        old_direction = self.detour_rotation
         self.logger.debug('direction: ' + str(self.detour_rotation))
         self.logger.debug('deviation: ' + str(self.evasive_deviation))
 
         if self.detour_rotation is not None:
+            print('on detour')
             yaw += self.evasive_deviation
             # try to turn back towars goal
             yaw -= self.detour_rotation
@@ -495,9 +499,11 @@ class MinecraftGraphLocomotion(WorldAdapter):
                 self.evasive_deviation -= self.detour_rotation
                 if self.evasive_deviation == 0:
                     self.detour_rotation = None
+                print('getting warmer, turning towards 0')
             else:
                 yaw += self.detour_rotation
                 while True:
+                    print('no werk, detour ' + str(self.detour_rotation) + ' for a total ' + str(self.evasive_deviation + self.detour_rotation))
                     self.set_yaw_degrees(yaw)
                     if self.move_forward(yaw):
                         break
@@ -508,19 +514,40 @@ class MinecraftGraphLocomotion(WorldAdapter):
                         self.set_yaw_degrees(yaw)
 
         else:
+            print('straight')
             if not self.move_forward(yaw):
-                # decide which way to turn for detour
+                # decide which way to turn first for detour
                 if (yaw // 45) % 2 == 0:
-                    self.detour_rotation = +45
+                    pref = +1
+                    # self.detour_rotation = +45
                 else:
-                    self.detour_rotation = -45
+                    pref = -1
+                    # self.detour_rotation = -45
                 # turn until we can move again:
                 while True:
-                    yaw += self.detour_rotation
-                    self.evasive_deviation += self.detour_rotation
-                    self.set_yaw_degrees(yaw)
-                    if self.move_forward(yaw):
+                    newyaw = (yaw + (pref * 45)) % 360
+                    print('yaw: %.2f + %d * 45 = %.2f' % (yaw, pref, newyaw))
+                    self.set_yaw_degrees(newyaw)
+                    print('try turning ' + str((pref * 45)))
+                    if self.move_forward(newyaw):
+                        print('success')
+                        self.evasive_deviation = -(pref * 45)
+                        self.detour_rotation = math.copysign(pref, 45) * 45
                         break
+
+                    newyaw = (yaw - (pref * 45)) % 360
+                    print('yaw: %.2f + %d * 45 = %.2f' % (yaw, pref, newyaw))
+                    self.set_yaw_degrees(newyaw)
+                    print('try turning -' + str((pref * 45)))
+                    if self.move_forward(newyaw):
+                        print('success')
+                        self.evasive_deviation = -(pref * 45)
+                        self.detour_rotation = math.copysign(pref, 45) * 45
+                        break
+
+                    pref += pref
+                print(self.detour_rotation)
+                print(self.evasive_deviation)
 
         self.target_loco_node_uid = target_loco_node_uid
         self.current_loco_node = new_loco_node
@@ -529,6 +556,9 @@ class MinecraftGraphLocomotion(WorldAdapter):
         pos = self.spockplugin.clientinfo.position
         dX = pos['x'] - target_coords['x']
         dZ = pos['z'] - target_coords['z']
+        print('look:')
+        print('X: %.2f - %.2f = %.2f' % (pos['x'], target_coords['x'], dX))
+        print('Z: %.2f - %.2f = %.2f' % (pos['z'], target_coords['z'], dZ))
         yaw = math.atan2(dZ, dX) * 180 / math.pi
         yaw += 90
         yaw = yaw % 360
@@ -543,6 +573,8 @@ class MinecraftGraphLocomotion(WorldAdapter):
         if yaw_deg > 179.9:
             yaw_deg = - (180 - (yaw_deg % 180))
         self.spockplugin.clientinfo.position['yaw'] = yaw_deg
+        self.spockplugin.clientinfo.position['pitch'] = 0
+        print(self.spockplugin.clientinfo.position)
 
     def check_for_action_feedback(self):
         """ """

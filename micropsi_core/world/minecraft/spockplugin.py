@@ -7,7 +7,7 @@ import math
 
 
 STANCE_ADDITION = 1.620
-STEP_LENGTH = 0.5
+STEP_LENGTH = 0.1
 JUMPING_MAGIC_NUMBER = 0  # 2 used to work
 
 
@@ -70,22 +70,26 @@ class MicropsiPlugin(object):
             # we are too close to the next block, need to check that one too:
             for direction in ['x', 'z']:
                 if dist[direction] < 0.3:
+                    print('correcting ' + direction + " -" + str(int(math.copysign(1, target_coords[direction]))))
                     block_coords.append(self.get_block_coordinates(target_coords))
                     block_coords[-1][direction] -= int(math.copysign(1, target_coords[direction]))
                 elif dist[direction] > 0.7:
+                    print('correcting ' + direction + " +" + str(int(math.copysign(1, target_coords[direction]))))
                     block_coords.append(self.get_block_coordinates(target_coords))
                     block_coords[-1][direction] += int(math.copysign(1, target_coords[direction]))
 
         # collect ground offsets for every block we need to check
         ground_offset = []
         y = target_coords['y'] - 1  # this is the current block the agent is standing on
-
         # check movement possibility for every block
+        print('checking:')
         for check_block in block_coords:
+            print(check_block)
             move = False
             # check if the next step is possible: nothing in the way, height diff <= 1
             if self.is_opaque(self.get_block_type(check_block['x'], y + 2, check_block['z'])):
                 move = False
+                print('something in the way')
             elif self.is_opaque(self.get_block_type(check_block['x'], y + 1, check_block['z'])):
 
                 if not self.is_opaque(self.get_block_type(check_block['x'], y + 3, check_block['z'])):
@@ -93,17 +97,21 @@ class MicropsiPlugin(object):
                     # (Door, IronDoor, Fence, Fence Gate, Cobblestone Wall)
                     if self.get_block_type(check_block['x'], y + 1, check_block['z']) not in [64, 71, 85, 107, 139]:
                         ground_offset.append((1, check_block))
+                        print('ok, 1 up')
                         move = True
                 else:
                     move = False
 
             elif self.is_opaque(self.get_block_type(check_block['x'], y, check_block['z'])):
                 ground_offset.append((0, check_block))
+                print('ok, ==')
                 move = True
             elif self.is_opaque(self.get_block_type(check_block['x'], y - 1, check_block['z'])):
                 ground_offset.append((-1, check_block))
+                print('ok, 1 down')
                 move = True
             if not move:
+                print('nogood')
                 return False
             else:
                 # check for water
@@ -111,14 +119,19 @@ class MicropsiPlugin(object):
                 ground_block = self.get_block_type(check_block['x'], y, check_block['z'])
                 if foot_block in [8, 9] or ground_block in [8, 9]:
                     if foot_block in [8, 9]:
+                        print('swimming')
                         # we're already swimming
                         ground_offset[-1] = (0, check_block)
                     else:
                         # we would be walking on water, adjust y to be *in* water
+                        print('be IN WATER')
                         ground_offset[-1] = (-1, check_block)
 
+        print("MOOOOOOOOOOOOVE")
         # take the highest block
         ground_offset = sorted(ground_offset, key=lambda tup: tup[0])
+        print(target_coords)
+        print(ground_offset)
         ground_offset = ground_offset[-1][0]
 
         # update our position
@@ -127,6 +140,7 @@ class MicropsiPlugin(object):
         self.clientinfo.position['stance'] = target_coords['y'] + ground_offset + STANCE_ADDITION
         self.clientinfo.position['z'] = target_coords['z']
         self.clientinfo.position['on_ground'] = True
+        print("---------------------------------------------------------")
         return True
 
     def is_opaque(self, block_id):

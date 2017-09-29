@@ -145,7 +145,7 @@ var api = {
 
     call: function(functionname, params, success_cb, error_cb, method){
         var url = '/rpc/'+functionname;
-        if(method != "post"){
+        if(method == "get"){
             args = '';
             for(var key in params){
                 args += key+'='+encodeURIComponent(JSON.stringify(params[key]))+',';
@@ -154,8 +154,8 @@ var api = {
         }
         $.ajax({
             url: url,
-            data: ((method == "post") ? JSON.stringify(params) : null),
-            type: method || "get",
+            data: ((method != "get") ? JSON.stringify(params) : null),
+            type: method || "post",
             processData: (method == "get"),
             contentType: "application/json",
             success: function(response){
@@ -197,7 +197,7 @@ var api = {
                     }
                     msg += '</ul>';
                 } else {
-                    msg = data
+                    msg = data.data
                 }
             }
             if(!msg){
@@ -220,7 +220,7 @@ $(function() {
         dialogs.remote_form_dialog($(event.target).attr('href'));
     }
 
-    $('#menu_nodenet').find('a').on('click', function(event){
+    $('.navbar .nav .dropdown').find('a').on('click', function(event){
         if($(event.target).parent().hasClass("disabled")){
             event.stopImmediatePropagation();
             event.preventDefault();
@@ -233,6 +233,13 @@ $(function() {
             $('#menu_nodenet').find('[data=nodenet-needed]').addClass("disabled")
         }
     });
+    $('a.dropdown-toggle[href=#menu_world]').on('click', function(event){
+        if(currentWorld){
+            $('#menu_world').find('[data=world-needed]').removeClass("disabled")
+        } else {
+            $('#menu_world').find('[data=world-needed]').addClass("disabled")
+        }
+    });
 
     $('a.remote_form_dialog').on('click', remote_form);
 
@@ -240,22 +247,19 @@ $(function() {
         event.preventDefault();
         dialogs.remote_form_dialog($(event.target).attr('href'), function(data){
             // refreshNodenetList();  -- TODO: does not work yet (due to paperscript missing proper js integration)
-            dialogs.notification('Nodenet created. ID: ' + data.nodenet_uid, 'success');
-            $.cookie('selected_nodenet', data.nodenet_uid, { expires: 7, path: '/' });
+            dialogs.notification('Agent created. ID: ' + data.nodenet_uid, 'success');
+            $.cookie('selected_nodenet', data.nodenet_uid+"/", { expires: 7, path: '/' });
             window.location.reload();
         });
     });
 
     $('.navbar a.nodenet_delete').on('click', function(){
-        if(typeof currentNodenet == 'undefined'){
-            return dialogs.notification("there is no current nodenet selected");
-        }
-        dialogs.confirm("Do you really want to delete this nodenet?", function(){
+        dialogs.confirm("Do you really want to delete this agent?", function(){
             api.call('delete_nodenet', {nodenet_uid: currentNodenet}, function(data){
                 currentNodenet=null;
                 // refreshNodenetList();  -- TODO: does not work yet (due to paperscript missing proper js integration)
-                $.cookie('selected_nodenet', currentNodenet, { expires: 7, path: '/' });
-                dialogs.notification('Nodenet deleted');
+                $.cookie('selected_nodenet', "", { expires: 7, path: '/' });
+                dialogs.notification('Agent deleted');
                 window.location.reload();
             });
         });
@@ -263,49 +267,35 @@ $(function() {
 
     $('.navbar a.nodenet_edit').on('click', function(event){
         event.preventDefault();
-        if(typeof currentNodenet == 'undefined'){
-            return dialogs.notification("there is no current nodenet selected");
-        }
         api.call('edit_nodenet', {nodenet_uid: currentNodenet});
     });
 
     $('.navbar a.nodenet_save').on('click', function(event){
         event.preventDefault();
-        if(typeof currentNodenet == 'undefined'){
-            return dialogs.notification("there is no current nodenet selected");
-        }
         $('#loading').show();
         api.call('save_nodenet', {nodenet_uid: currentNodenet});
     });
 
     $('.navbar a.nodenet_revert').on('click', function(event){
         event.preventDefault();
-        if(typeof currentNodenet == 'undefined'){
-            return dialogs.notification("there is no current nodenet selected");
-        }
         $('#loading').show();
         api.call('revert_nodenet', {nodenet_uid: currentNodenet}, function(data){
-            dialogs.notification("nodenet reverted");
+            dialogs.notification("agent reverted");
             //setCurrentNodenet(nodenet_uid);  -- TODO: does not work yet (due to paperscript missing proper js integration)
             window.location.reload();
         });
     });
 
-    $('.navbar a.reload_native_modules').on('click', function(event){
+    $('.navbar a.reload_code').on('click', function(event){
         event.preventDefault();
-        if(typeof currentNodenet == 'undefined'){
-            return dialogs.notification("there is no current nodenet selected");
-        }
         if($(event.target).hasClass("reload_revert")){
-            api.call('reload_native_modules', {}, function(){
-                api.call('revert_nodenet', {nodenet_uid: currentNodenet}, function(){
-                    window.location.reload();
-                });
+            api.call('reload_and_revert', {nodenet_uid: currentNodenet}, function(){
+                window.location.reload();
             });
             return
         }
         $('#loading').show();
-        api.call('reload_native_modules', {}, function(){
+        api.call('reload_code', {}, function(){
             dialogs.notification("reload successful");
             window.location.reload();
         });
@@ -319,9 +309,6 @@ $(function() {
     });
     $('.navbar a.nodenet_merge').on('click', function(event){
         event.preventDefault();
-        if(typeof currentNodenet == 'undefined'){
-            return dialogs.notification("there is no current nodenet selected");
-        }
         dialogs.remote_form_dialog(event.target.href + '/' + currentNodenet, function(){
             window.location.reload();
         });
@@ -331,26 +318,28 @@ $(function() {
     $('.navbar a.world_new').on('click', function(event){
         event.preventDefault();
         dialogs.remote_form_dialog($(event.target).attr('href'), function(data){
-            dialogs.notification('World created. ID: ' + data.world_uid, 'success');
-            var url = '/world_list/' + ($.cookie('selected_world') || '');
+            dialogs.notification('Environment created. ID: ' + data.world_uid, 'success');
+            $(document).trigger('new_world_created', data);
+            var url = '/environment_list/' + ($.cookie('selected_world') || '');
             $.get(url, {}, function(data){
                 $('#world_list').html(data);
             });
         });
     });
-    $('.navbar a.world_edit').on('click', remote_form);
+
+    $('.navbar a.world_edit').on('click', function(event){
+        event.preventDefault();
+        dialogs.remote_form_dialog($(event.target).attr("href") + "?id=" + currentWorld);
+    });
 
     $('.navbar a.world_delete').on('click', function(event){
         event.preventDefault();
-        if(typeof currentWorld == 'undefined'){
-            return dialogs.notification("there is no current world selected");
-        }
-        dialogs.confirm("Do you really want to delete this world?", function(){
+        dialogs.confirm("Do you really want to delete this environment?", function(){
             api.call('delete_world',
                 {world_uid: currentWorld},
                 function(){
                     $.cookie('selected_world', '', {expires: -1, path: '/'});
-                    dialogs.notification("World deleted");
+                    dialogs.notification("Environment deleted");
                     window.location.reload();
                 }
             );
@@ -359,23 +348,17 @@ $(function() {
 
     $('.navbar a.world_save').on('click', function(event){
         event.preventDefault();
-        if(typeof currentWorld == 'undefined'){
-            return dialogs.notification("there is no current world selected");
-        }
         api.call('save_world', {world_uid: currentWorld});
     });
 
     $('.navbar a.world_revert').on('click', function(event){
         event.preventDefault();
-        if(typeof currentWorld == 'undefined'){
-            return dialogs.notification("there is no current world selected");
-        }
         api.call('revert_world', {world_uid: currentWorld},
             function(){
-                dialogs.notification("World state reverted");
+                dialogs.notification("Environment state reverted");
                 window.location.reload();
             }, function(){
-                dialogs.notification('Error reverting world', 'error');
+                dialogs.notification('Error reverting environment', 'error');
                 window.location.reload();
             }
         );
@@ -402,17 +385,11 @@ $(function() {
 
     $('.nodenet_export').on('click', function(event){
         event.preventDefault();
-        if(typeof currentNodenet == 'undefined'){
-            return dialogs.notification("there is no current nodenet selected");
-        }
         window.location.replace(event.target.href + '/' + currentNodenet);
     });
 
     $('.world_export').on('click', function(event){
         event.preventDefault();
-        if(typeof currentWorld == 'undefined'){
-            return dialogs.notification("there is no current world selected");
-        }
         window.location.replace(event.target.href + '/' + currentWorld);
     });
 
@@ -459,7 +436,6 @@ $(function() {
                 params['gate_type'] = $('#monitor_link_sourcegate_type_input').val();
                 params['target_node_uid'] = $('#monitor_link_targetnode_uid_input').val();
                 params['slot_type'] = $('#monitor_link_targetslot_type_input').val();
-                params['property'] = 'weight';
                 break;
             case 'modulator':
                 func = 'add_modulator_monitor';
@@ -484,8 +460,7 @@ $(function() {
         }, function(data){
             api.defaultErrorCallback(data);
             $('#monitor_modal').modal('hide');
-        },
-        method="post");
+        });
     }
     $('#monitor_modal .btn-primary').on('click', submitMonitorModal);
     $('#monitor_modal form').on('submit', submitMonitorModal);
@@ -680,10 +655,10 @@ updateWorldAdapterSelector = function() {
 
 
 var listeners = {}
-var simulationRunning = false;
+var calculationRunning = false;
 var currentNodenet;
 var runner_properties = {};
-var sections = ['nodenet_editor', 'monitor', 'world_editor'];
+var sections = ['nodenet_editor', 'netapi_console', 'monitor', 'world_editor'];
 
 
 register_stepping_function = function(type, input, callback){
@@ -695,6 +670,9 @@ unregister_stepping_function = function(type){
 
 busy = false;
 fetch_stepping_info = function(){
+    if(!currentNodenet){
+        return false;
+    }
     params = {
         nodenet_uid: currentNodenet
     };
@@ -702,7 +680,7 @@ fetch_stepping_info = function(){
         params[key] = listeners[key].input()
     }
     busy = true;
-    api.call('get_current_state', params, success=function(data){
+    api.call('get_calculation_state', params, success=function(data){
         busy = false;
         var start = new Date().getTime();
         window.currentSimulationStep = data.current_nodenet_step;
@@ -715,36 +693,37 @@ fetch_stepping_info = function(){
         $('.nodenet_step').text(data.current_nodenet_step);
         $('.world_step').text(data.current_world_step);
         var text = [];
-        if(data.simulation_condition){
-            if(data.simulation_condition.step_amount){
-                text.push("run " + data.simulation_condition.step_amount + " steps");
-                $('#run_condition_steps').val(data.simulation_condition.step_amount);
+        if(data.calculation_condition){
+            if(data.calculation_condition.step_amount){
+                text.push("run " + data.calculation_condition.step_amount + " steps");
+                $('#run_condition_steps').val(data.calculation_condition.step_amount);
             }
-            if(data.simulation_condition.monitor){
-                text.push('<span style="color: '+data.simulation_condition.monitor.color+';">monitor = ' + data.simulation_condition.monitor.value + '</span>');
-                $('#run_condition_monitor_selector').val(data.simulation_condition.monitor.uid);
-                $('#run_condition_monitor_value').val(data.simulation_condition.monitor.value);
+            if(data.calculation_condition.monitor){
+                text.push('<span style="color: '+data.calculation_condition.monitor.color+';">monitor = ' + data.calculation_condition.monitor.value + '</span>');
+                $('#run_condition_monitor_selector').val(data.calculation_condition.monitor.uid);
+                $('#run_condition_monitor_value').val(data.calculation_condition.monitor.value);
             }
         }
         if(text.length){
-            $('#simulation_controls .runner_condition').html(text.join(" or "));
-            $('#simulation_controls .running_conditional').show();
+            $('#calculation_controls .runner_condition').html(text.join(" or "));
+            $('#calculation_controls .running_conditional').show();
             $('#remove_runner_condition').show();
         } else {
-            $('#simulation_controls .running_conditional').hide();
+            $('#calculation_controls .running_conditional').hide();
             $('#remove_runner_condition').hide();
             $('#set_runner_condition').show();
         }
 
         var end = new Date().getTime();
-        if(data.simulation_running && !busy){
+        calculationRunning = data.calculation_running;
+        if(data.calculation_running && !busy){
             if(runner_properties.timestep - (end - start) > 0){
                 window.setTimeout(fetch_stepping_info, runner_properties.timestep - (end - start));
             } else {
                 $(document).trigger('runner_stepped');
             }
         }
-        setButtonStates(data.simulation_running);
+        setButtonStates(data.calculation_running);
         if(data.user_prompt){
             promptUser(data.user_prompt);
         }
@@ -754,26 +733,29 @@ fetch_stepping_info = function(){
         if(data.data == 'No such nodenet'){
             currentNodenet = null;
             $.cookie('selected_nodenet', '', { expires: -1, path: '/' });
+        } else {
+            api.defaultErrorCallback(data, outcome, type);
         }
     });
 
     $('#nodenet_user_prompt .btn-primary').on('click', function(event){
         event.preventDefault();
         var form = $('#nodenet_user_prompt form');
-        values = {};
+        parameters = {};
         var startnet = false;
         var fields = form.serializeArray();
         for(var idx in fields){
             if(fields[idx].name == 'run_nodenet'){
                 startnet = true;
             } else {
-                values[fields[idx].name] = fields[idx].value;
+                parameters[fields[idx].name] = fields[idx].value;
             }
         }
         api.call('user_prompt_response', {
             nodenet_uid: currentNodenet,
             node_uid: $('#user_prompt_node_uid').val(),
-            values: values,
+            key: $('#user_prompt_key').val(),
+            parameters: parameters,
             resume_nodenet: startnet
         }, function(data){
             $(document).trigger("runner_started");
@@ -786,15 +768,15 @@ $(document).on('runner_started', fetch_stepping_info);
 $(document).on('runner_stepped', fetch_stepping_info);
 $(document).on('nodenet_changed', function(event, new_uid){
     currentNodenet = new_uid;
-    $.cookie('selected_nodenet', currentNodenet, { expires: 7, path: '/' });
+    $.cookie('selected_nodenet', currentNodenet+"/", { expires: 7, path: '/' });
     refreshNodenetList();
 })
 $(document).on('form_submit', function(event, data){
     if(data.url == '/config/runner'){
         for(var i=0; i < data.values.length; i++){
-            switch(data.values[i].name){
-                case 'timestep': runner_properties.timestep = parseInt(data.values[i].value); break;
-                case 'factor': runner_properties.timestep = parseInt(data.values[i].value); break;
+            if (data.values[i].name == 'timestep'){
+                runner_properties.timestep = parseInt(data.values[i].value);
+                break;
             }
         }
     }
@@ -805,7 +787,7 @@ api.call('get_runner_properties', {}, function(data){
 });
 
 function refreshNodenetList(){
-    $.get("/nodenet_list/"+(currentNodenet || ''), function(html){
+    $.get("/agent_list/"+(currentNodenet || ''), function(html){
         $.each($('.nodenet_list'), function(idx, item){
             $(item).html(html);
             $('.nodenet_select', item).on('click', function(event){
@@ -826,30 +808,30 @@ function setButtonStates(running){
         $(document).prop('title', "▶ " + default_title);
         $('#nodenet_start').addClass('active');
         $('#nodenet_stop').removeClass('active');
-        $('#simulation_controls .runner_running').show();
-        $('#simulation_controls .runner_paused').hide();
+        $('#calculation_controls .runner_running').show();
+        $('#calculation_controls .runner_paused').hide();
     } else {
         $(document).prop('title', default_title);
         $('#nodenet_start').removeClass('active');
         $('#nodenet_stop').addClass('active');
-        $('#simulation_controls .runner_running').hide();
-        $('#simulation_controls .runner_paused').show();
+        $('#calculation_controls .runner_running').hide();
+        $('#calculation_controls .runner_paused').show();
     }
 }
 
 function stepNodenet(event){
     event.preventDefault();
-    if(simulationRunning){
+    if(calculationRunning){
         stopNodenetrunner(event);
     }
     if(currentNodenet){
-        api.call("step_simulation",
+        api.call("step_calculation",
             {nodenet_uid: currentNodenet},
             success=function(data){
                 $(document).trigger('runner_stepped');
             });
     } else {
-        dialogs.notification('No nodenet selected', 'error');
+        dialogs.notification('No agent selected', 'error');
     }
 }
 
@@ -857,16 +839,16 @@ function startNodenetrunner(event){
     event.preventDefault();
     nodenetRunning = true;
     if(currentNodenet){
-        api.call('start_simulation', {nodenet_uid: currentNodenet}, function(){
+        api.call('start_calculation', {nodenet_uid: currentNodenet}, function(){
             $(document).trigger('runner_started');
         });
     } else {
-        dialogs.notification('No nodenet selected', 'error');
+        dialogs.notification('No agent selected', 'error');
     }
 }
 function stopNodenetrunner(event){
     event.preventDefault();
-    api.call('stop_simulation', {nodenet_uid: currentNodenet}, function(){
+    api.call('stop_calculation', {nodenet_uid: currentNodenet}, function(){
         $(document).trigger('runner_stopped');
         nodenetRunning = false;
     });
@@ -878,7 +860,7 @@ function revertAll(event){
     if(currentNodenet){
         $('#loading').show();
         api.call(
-            'revert_simulation',
+            'revert_calculation',
             {nodenet_uid: currentNodenet},
             function(){
                 window.location.reload();
@@ -886,7 +868,7 @@ function revertAll(event){
             }
         );
     } else {
-        dialogs.notification('No nodenet selected', 'error');
+        dialogs.notification('No agent selected', 'error');
     }
 }
 $(function() {
@@ -903,12 +885,20 @@ $.extend( $.fn.dataTableExt.oStdClasses, {
 } );
 
 $(document).ready(function() {
-    currentNodenet = $.cookie('selected_nodenet') || '';
+    var nodenetcookie = $.cookie('selected_nodenet') || '';
+    if (nodenetcookie && nodenetcookie.indexOf('/') > 0){
+        nodenetcookie = nodenetcookie.split("/");
+        currentNodenet = nodenetcookie[0];
+        currentNodeSpace = nodenetcookie[1] || null;
+    } else {
+        currentNodenet = '';
+        currentNodeSpace = '';
+    }
     currentWorld = $.cookie('selected_world') || '';
     $('#nodenet_mgr').dataTable( {
         "sDom": "<'row'<'span6'l><'span6'f>r>t<'row'<'span6'i><'span6'p>>",
         "sPaginationType": "bootstrap"
-    } );
+    });
     $('textarea.loc').autogrow();
     if($('.frontend_section').length == 1){
         $('.frontend_section').addClass('in');
@@ -918,7 +908,7 @@ $(document).ready(function() {
     refreshNodenetList();
     setButtonStates(false);
     if(currentNodenet){
-        fetch_stepping_info();
+        $(document).trigger('nodenet_changed', currentNodenet);
     }
 });
 
@@ -1007,33 +997,38 @@ window.addMonitor = function(type, param, val){
 
 function promptUser(data){
     var html = '';
-    html += '<p>Nodenet interrupted by Node ' + (data.node.name || data.node.uid) +' with message:</p>';
+    html += '<p>Agent interrupted by Node ' + (data.node.name || data.node.uid) +' with message:</p>';
     html += "<p>" + data.msg +"</p>";
     html += '<form class="well form-horizontal">';
-    if (data.options){
-        for(var idx in data.options){
-            var item = data.options[idx];
-            html += '<div class="control-group"><label class="control-label">' + item.label + '</label>';
-            if(item.values && typeof item.values == 'object'){
-                html += '<div class="controls"><select name="'+item.key+'">';
-                for(var val in item.values){
-                    if(item.values instanceof Array){
-                        html += '<option>'+item.values[val]+'</option>';
-                    } else {
-                        html += '<option value="'+val+'">'+item.values[val]+'</option>';
+    if (data.parameters){
+        for(var idx in data.parameters){
+            var item = data.parameters[idx];
+            html += '<div class="control-group"><label class="control-label">' + item.name + '</label>';
+            if(item.options && typeof item.options == 'object'){
+                html += '<div class="controls"><select name="'+item.name+'">';
+                for(var val in item.options){
+                    html += '<option';
+                    if (item.default && item.default == item.options[val]){
+                        html += ' selected="selected"'
                     }
+                    html += '>'+item.options[val]+'</option>';
                 }
-                html += '</select></div></div>';
-            } else if(item.type && item.type == "textarea"){
-                html += '<div class="controls"><textarea name="'+item.key+'">'+(item.values || '')+'</textarea></div></div>';
+                html += '</select></div>';
             } else {
-                html += '<div class="controls"><input name="'+item.key+'" value="'+(item.values || '')+'" /></div></div>';
+                html += '<div class="controls"><input name="'+item.name+'" value="'+(item.default || '')+'" /></div>';
             }
+            if (item.description){
+                html += '<div class="hint small">'+item.description+'</div>'
+            }
+            html += '</div>';
         }
     }
-    html += '<div class="control-group"><label class="control-label">Continue running nodenet?</label>';
-    html += '<div class="controls"><input type="checkbox" name="run_nodenet"/></div></div>';
+    if (nodenetRunning){
+        html += '<div class="control-group"><label class="control-label">Continue running agent?</label>';
+        html += '<div class="controls"><input type="checkbox" name="run_nodenet"/></div></div>';
+    }
     html += '<input class="hidden" id="user_prompt_node_uid" value="'+data.node.uid+'" />';
+    html += '<input class="hidden" id="user_prompt_key" value="'+data.key+'" />';
     html += '</form>';
     $('#nodenet_user_prompt .modal-body').html(html);
     $('#nodenet_user_prompt').modal("show");

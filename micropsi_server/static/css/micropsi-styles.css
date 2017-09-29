@@ -22,6 +22,7 @@ h3 {
 .monitor_list input {display:inline;}
 .monitor_list label {display:inline;}
 .monitor_list li {padding: 2px 0;}
+#monitor input[type="checkbox"] {margin: 0;}
 
 #graph, #logs {
   overflow: auto;
@@ -36,10 +37,13 @@ h3 {
 .log_DEBUG {color: #1700FF;}
 .log_INFO {color: #4b4b4b;}
 .log_WARNING{color: #942628;}
-.log_ERROR {color: #e12628;}
+.log_ERROR, .log_CRITICAL, .log_ERROR:hover, .log_CRITICAL:hover {
+  background-color: #c22;
+  color: white;
+}
 
-.delete_monitor i { opacity: 0.5; }
-.delete_monitor:hover i { opacity: 1; }
+.monitor_action i { opacity: 0.5; }
+.monitor_action:hover i { opacity: 1; }
 
 .logentry{
   display:block;
@@ -451,11 +455,11 @@ table.emoexpression td {
   top: 100px !important;
 }
 
-#simulation_controls{
+#calculation_controls{
   margin-right: 20px;
 }
 
-#simulation_controls .step_counters {
+#calculation_controls .step_counters {
   font-size: 8px;
   line-height: 9px;
   text-align: left;
@@ -469,7 +473,7 @@ table.emoexpression td {
   border-right: 1px solid #333;
   margin-right: 1px;
 }
-#simulation_controls .btn-expand {
+#calculation_controls .btn-expand {
   font-size: 8px;
   padding-left: 1px;
   padding-right: 1px;
@@ -630,4 +634,48 @@ p.clear {
 
 .hint.small {
   font-size: 0.9em;
+}
+
+table th {
+  text-align: left;
+}
+
+#console_input {
+  border-top: 0px none;
+  border-left: 0px none;
+  border-right: 0px none;
+  background: transparent;
+  box-shadow: none;
+  webkit-box-shadow: none;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  width: 50%;
+  padding-top: 4px;
+  vertical-align: middle;
+  margin: 0;
+}
+#netapi_console .code_container {
+  overflow-y: scroll;
+}
+#netapi_console .seperator{
+  margin-top: -17px;
+}
+#console_autocomplete {
+  font-size: 10px;
+  max-height: 120px;
+  overflow-y: scroll;
+}
+#console_autocomplete li a.selected {
+  color: #ffffff !important;
+  text-decoration: none;
+  background-color: #0081c2 !important;
+}
+
+#timeseries_controls .slider.slider-horizontal {
+  width: 100% !important;
+}
+#timeseries_controls .tooltip.top {
+  opacity: 0.8;
 }

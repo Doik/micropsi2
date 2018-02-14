@@ -10,12 +10,32 @@ from micropsi_core.nodenet.nodefunctions import neuron, concept
 import pytest
 
 
-plotting_available = False
-try:
-    import matplotlib
-    plotting_available = True
-except ImportError:
-    pass
+def test_node_name_defaults(runtime, test_nodenet, resourcepath):
+    import os
+    netapi = runtime.nodenets[test_nodenet].netapi
+    nodetype_file = os.path.join(resourcepath, 'nodetypes', 'testnode.py')
+    with open(nodetype_file, 'w') as fp:
+        fp.write("""nodetype_definition = {
+            "name": "Testnode",
+            "slottypes": ["gen", "foo", "bar"],
+            "nodefunction_name": "testnodefunc",
+            "gatetypes": ["gen", "foo", "bar"]
+            }
+def testnodefunc(netapi, node=None, **prams):\r\n    return 17
+""")
+    runtime.reload_code()
+    res, uid = runtime.add_node(test_nodenet, "Neuron", [10, 10, 10], None)
+    assert netapi.get_node(uid).name == ""
+    res, uid = runtime.add_node(test_nodenet, "Pipe", [10, 10, 10], None)
+    assert netapi.get_node(uid).name == ""
+    res, uid = runtime.add_node(test_nodenet, "Testnode", [10, 10, 10], None)
+    assert netapi.get_node(uid).name == "Testnode"
+    node = netapi.create_node("Neuron")
+    assert node.name == ""
+    node = netapi.create_node("Pipe")
+    assert node.name == ""
+    node = netapi.create_node("Testnode")
+    assert node.name == "Testnode"
 
 
 @pytest.mark.engine("theano_engine")
@@ -31,6 +51,7 @@ def test_nodetype_function_definition_overwrites_default_function_name_theano(ru
 
 
 @pytest.mark.engine("dict_engine")
+@pytest.mark.engine("numpy_engine")
 def test_nodetype_function_definition_overwrites_default_function_name(runtime, test_nodenet):
     nodenet = runtime.get_nodenet(test_nodenet)
     nodetype = nodenet.get_standard_nodetype_definitions()['Concept'].copy()
@@ -143,19 +164,39 @@ def phatNM(netapi, node, **_):
     assert result['is_highdimensional']
 
 
-@pytest.mark.skipif(not plotting_available, reason="requires matplotlib")
-def test_node_show_plot_and_close_plot(runtime, test_nodenet):
-    from matplotlib import pyplot as plt
-    net = runtime.nodenets[test_nodenet]
-    netapi = net.netapi
-    node = netapi.create_node("Neuron", None, "Neuron")
-    fig = plt.figure(figsize=(3, 2))
-    node.show_plot(fig)
-    assert net.figures[node.uid] == [fig]
-    netapi.delete_node(node)
-    assert node.uid not in net.figures
-    node = netapi.create_node("Neuron", None, "Neuron")
-    node.show_plot(fig)
-    runtime.unload_nodenet(test_nodenet)
-    assert plt.get_fignums() == []
+def test_start_stop_hooks(runtime, test_nodenet, resourcepath):
+    import os
+    from time import sleep
+    with open(os.path.join(resourcepath, 'nodetypes', 'foobar.py'), 'w') as fp:
+        fp.write("""
+nodetype_definition = {
+    "name": "foobar",
+    "slottypes": ["gen"],
+    "gatetypes": ["gen"],
+    "nodefunction_name": "foobar",
+}
 
+def hook(node):
+    node.hook_runs += 1
+
+def antihook(node):
+    node.hook_runs -= 1
+
+def foobar(netapi, node, **_):
+    if not hasattr(node, 'initialized'):
+        node.initialized = True
+        node.hook_runs = 0
+        node.on_start = hook
+        node.on_stop = antihook
+""")
+
+    runtime.reload_code()
+    netapi = runtime.nodenets[test_nodenet].netapi
+    foobar = netapi.create_node('foobar')
+    runtime.step_nodenet(test_nodenet)
+    assert foobar.initialized
+    runtime.start_nodenetrunner(test_nodenet)
+    sleep(0.001)
+    assert foobar.hook_runs == 1
+    runtime.stop_nodenetrunner(test_nodenet)
+    assert foobar.hook_runs == 0

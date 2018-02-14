@@ -12,19 +12,48 @@ import uuid
 import errno
 import os
 import sys
-try:
-    import ipdb as pdb
-except ImportError:
-    import pdb
+import logging
+
+last_tb = None
 
 
-def post_mortem():
-    """ if desired, point a debugger to the origin of the last exception """
+def post_mortem(ignore_types=[]):
+    """ store detailed traceback data for use in debuggers, if configured"""
+    global last_tb
     from micropsi_core.runtime import runtime_config
     if runtime_config['micropsi2'].get('on_exception') == 'debug':
-        exception_type, exception, tb = sys.exc_info()
-        print('\033[01m\033[31m%s: \033[32m%s\033[0m' % (exception_type.__name__, exception))
-        pdb.post_mortem(tb)
+        _, exc, tb = sys.exc_info()
+        if type(exc) not in ignore_types:
+            last_tb = tb
+        logging.getLogger('system').debug("traceback stored. use micropsi_core.tools.interactive_pdb to inspect.")
+
+
+def interactive_pdb():
+    """ inspect the traceback of the most recent exception. """
+    import traceback
+    from IPython.core.debugger import Pdb
+
+    if last_tb is None:
+        print("Nothing to debug.")
+        return
+
+    # print to stdout (sic!) what this pdb session is about
+    msg = traceback.format_tb(last_tb)[-5:]
+    print('Starting PDB session for:\n\n\033[94m%s\033[0m\n' % ''.join(msg))
+
+    pdb = Pdb()
+    pdb.reset()
+    pdb.interaction(frame=None, traceback=last_tb)
+
+
+def is_file_writeable(path):
+    """
+    Returns true if the file specified is write- or createable
+    """
+    if os.path.isfile(path):
+        return os.access(path, os.W_OK)
+    else:
+        return os.access(os.path.dirname(path), os.W_OK)
 
 
 def pid_exists(pid):
@@ -189,10 +218,45 @@ def create_function(source_string, parameters="", additional_symbols=None):
 
 
 class Bunch(dict):
-    def __init__(self, **kwargs):
-        self.__dict__.update(kwargs)
-        for i in kwargs:
-            self[i] = kwargs[i]
+    def __contains__(self, k):
+        try:
+            return dict.__contains__(self, k) or hasattr(self, k)
+        except:
+            return False
+
+    def __getattr__(self, k):
+        try:
+            # Throws exception if not in prototype chain
+            return object.__getattribute__(self, k)
+        except AttributeError:
+            try:
+                return self[k]
+            except KeyError:
+                raise AttributeError(k)
+
+    def __setattr__(self, k, v):
+        try:
+            # Throws exception if not in prototype chain
+            object.__getattribute__(self, k)
+        except AttributeError:
+            try:
+                self[k] = v
+            except:
+                raise AttributeError(k)
+        else:
+            object.__setattr__(self, k, v)
+
+    def __delattr__(self, k):
+        try:
+            # Throws exception if not in prototype chain
+            object.__getattribute__(self, k)
+        except AttributeError:
+            try:
+                del self[k]
+            except KeyError:
+                raise AttributeError(k)
+        else:
+            object.__delattr__(self, k)
 
 
 import collections
@@ -267,3 +331,11 @@ def itersubclasses(cls, folder=None, _seen=None):
                 yield sub
             for sub in itersubclasses(sub, folder=folder, _seen=_seen):
                 yield sub
+
+
+def parse_bool(val):
+    from distutils.util import strtobool
+    if type(val) == bool:
+        return val
+    else:
+        return strtobool(str(val))

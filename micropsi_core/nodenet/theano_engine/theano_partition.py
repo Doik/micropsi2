@@ -259,9 +259,9 @@ class TheanoPartition():
 
         # instantiate theano data structures
         if self.sparse:
-            self.w = theano.shared(sp.csr_matrix((self.NoE, self.NoE), dtype=nodenet.scipyfloatX), name="w")
+            self.w = theano.shared(sp.csr_matrix((self.NoE, self.NoE), dtype=nodenet.numpyfloatX), name="w")
         else:
-            w_matrix = np.zeros((self.NoE, self.NoE), dtype=nodenet.scipyfloatX)
+            w_matrix = np.zeros((self.NoE, self.NoE), dtype=nodenet.numpyfloatX)
             self.w = theano.shared(value=w_matrix.astype(T.config.floatX), name="w", borrow=True)
 
         self.t = theano.shared(value=np.int32(0), name="t")
@@ -1017,6 +1017,8 @@ class TheanoPartition():
         else:
             self.logger.warning("no g_function_selector in file, falling back to defaults")
 
+        datafile.close()
+
         for uid in invalid_uids:
             if self.nodenet.get_partition(uid) == self:
                 w_matrix = self.w.get_value()
@@ -1079,6 +1081,7 @@ class TheanoPartition():
                     datafile['from_ids'],
                     datafile['to_ids'],
                     weights)
+                datafile.close()
 
     def grow_number_of_nodespaces(self, growby):
 
@@ -1140,9 +1143,9 @@ class TheanoPartition():
         self.allocated_elements_to_activators = new_allocated_elements_to_activators
 
         if self.sparse:
-            new_w = sp.csr_matrix((new_NoE, new_NoE), dtype=self.nodenet.scipyfloatX)
+            new_w = sp.csr_matrix((new_NoE, new_NoE), dtype=self.nodenet.numpyfloatX)
         else:
-            new_w = np.zeros((new_NoE, new_NoE), dtype=self.nodenet.scipyfloatX)
+            new_w = np.zeros((new_NoE, new_NoE), dtype=self.nodenet.numpyfloatX)
         new_w[0:self.NoE, 0:self.NoE] = self.w.get_value(borrow=True)
         self.w.set_value(new_w, borrow=True)
 
@@ -1990,10 +1993,13 @@ class TheanoPartition():
 
                 gate_activations[gate] = float(a[element])
 
+            activation = float(a[self.allocated_node_offsets[id] + GEN])
+
             state = None
             if uid in self.native_module_instances:
                 state, numpy_state = self.native_module_instances[uid].get_persistable_state()
                 node_numpy_data[uid] = numpy_state
+                activation = self.native_module_instances[uid].activation
 
             parameters = {}
             if strtype == "Sensor":
@@ -2045,7 +2051,7 @@ class TheanoPartition():
                     "type": strtype,
                     "parameters": parameters,
                     "state": state,
-                    "activation": float(a[self.allocated_node_offsets[id] + GEN]),
+                    "activation": activation,
                     "gate_activations": gate_activations,
                     "gate_configuration": gate_configurations,
                     "is_highdimensional": type(nodetype) == HighdimensionalNodetype}

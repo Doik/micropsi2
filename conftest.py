@@ -5,11 +5,19 @@ import pytest
 import logging
 import tempfile
 
+engine_defaults = "dict_engine"
 try:
     import theano
-    engine_defaults = "dict_engine,theano_engine"
-except:
-    engine_defaults = "dict_engine"
+    theano_available = True
+    engine_defaults += ",theano_engine"
+except ImportError:
+    theano_available = False
+try:
+    import numpy as np
+    numpy_available = True
+    engine_defaults += ',numpy_engine'
+except ImportError:
+    numpy_available = False
 
 
 directory = tempfile.TemporaryDirectory()
@@ -27,9 +35,8 @@ cfg['paths']['world_directory'] = testpath
 cfg['paths']['persistency_directory'] = testpath
 cfg['paths']['server_settings_path'] = os.path.join(testpath, 'server_cfg.json')
 cfg['paths']['usermanager_path'] = os.path.join(testpath, 'user-db.json')
+cfg['paths']['device_settings_path'] = os.path.join(testpath, 'devices.json')
 
-if 'logfile' in cfg['logging']:
-    del cfg['logging']['logfile']
 cfg['micropsi2']['single_agent_mode'] = ''
 if 'theano' in cfg:
     cfg['theano']['initial_number_of_nodes'] = '50'
@@ -57,9 +64,9 @@ def pytest_cmdline_main(config):
     if config.getoption('agents'):
         config.args = [orig_agent_dir]
         config._inicache['python_functions'] = []
+        config.addinivalue_line('norecursedirs', 'experiments')
         config.addinivalue_line('python_files', '*.py')
         config.addinivalue_line('python_functions', '_test*')
-        config.addinivalue_line('norecursedirs', 'experiments')
         cfg['paths']['agent_directory'] = orig_agent_dir
         micropsi_runtime.initialize(config=cfg)
     elif config.getoption('worlds'):
@@ -92,7 +99,7 @@ def pytest_generate_tests(metafunc):
     if 'engine' in metafunc.fixturenames:
         engines = []
         for e in metafunc.config.option.engine.split(','):
-            if e in ['theano_engine', 'dict_engine']:
+            if e in ['theano_engine', 'dict_engine', 'numpy_engine']:
                 engines.append(e)
         if not engines:
             pytest.exit("Unknown engine.")
@@ -102,8 +109,9 @@ def pytest_generate_tests(metafunc):
 def pytest_runtest_setup(item):
     engine_marker = item.get_marker("engine")
     if engine_marker is not None:
+        engines = engine_marker.args
         engine_marker = engine_marker.args[0]
-        if engine_marker != item.callspec.params['engine']:
+        if item.callspec.params['engine'] not in engines:
             pytest.skip("test requires engine %s" % engine_marker)
     for uid in list(micropsi_runtime.nodenets.keys()):
         micropsi_runtime.stop_nodenetrunner(uid)
@@ -119,6 +127,7 @@ def pytest_runtest_setup(item):
         else:
             os.remove(path)
 
+    open(os.path.join(testpath, '__init__.py'), 'w').close()
     os.mkdir(os.path.join(testpath, 'worlds'))
     os.mkdir(os.path.join(testpath, 'nodenets'))
     os.mkdir(os.path.join(testpath, 'nodenets', '__autosave__'))
@@ -149,7 +158,7 @@ def set_logging_levels():
     """ sets the logging levels of the default loggers back to WARNING """
     logging.getLogger('system').setLevel(logging.WARNING)
     logging.getLogger('world').setLevel(logging.WARNING)
-    micropsi_runtime.runtime_config['logging']['level_agent'] = 'WARNING'
+    micropsi_runtime.runner_config['log_level_agent'] = 'WARNING'
 
 
 @pytest.fixture(scope="session")

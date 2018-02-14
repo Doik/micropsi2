@@ -1,4 +1,32 @@
 
+0.16-alpha14 (2018-02-14)
+==========
+* Add status reporting API
+* Migrate logging and profiling settings from config.ini to UI
+* Add support for tensorrt
+* Add IPython Console for MESH
+
+
+0.15-alpha13 (2017-12-20)
+==========
+* Bugfixes for netapi, ipython console
+* Fix runner timing
+
+
+0.14-alpha12 (2017-12-08)
+==========
+* Ipython console
+* Remove theano
+
+
+0.13-alpha11 (2017-11-29)
+==========
+ * Support for devices (cameras, etc)
+ * Numpy flow-engine
+ * Autoalign for flow nodes
+ * Netapi hooks for start/stop
+
+
 0.12-alpha10 (2017-09-04)
 ==========
  * Improved user prompts

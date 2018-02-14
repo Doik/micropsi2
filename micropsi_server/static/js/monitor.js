@@ -19,7 +19,6 @@ $(function(){
     var cookieval = $.cookie('selected_nodenet');
     if (cookieval && cookieval.indexOf('/')){
         currentNodenet = cookieval.split('/')[0];
-        $('form#export_recorders').attr('action', '/recorder/export/' + currentNodenet);
     }
 
     var capturedLoggers = {
@@ -45,114 +44,13 @@ $(function(){
     var showStepInLog = true;
     var logs_to_add = [];
 
-    var rec_modal = $('#recorder_modal');
-    var rec_type_dd = $('#recorder_type_input');
-    rec_type_dd.on('change', function(event){
-        var type = rec_type_dd.val();
-        $('.recorder_specific').hide();
-        $('.'+type).show();
-    })
-    $('.add_recorder').on('click', function(event){
-        event.preventDefault();
-        api.call('get_nodespace_list', {nodenet_uid: currentNodenet}, function(data){
-            var html = '';
-            for(uid in data){
-                html += '<option value="'+uid+'">'+data[uid].name+'</option>';
-            }
-            $('.recorder_nodespace_dropdown').html(html);
-            rec_type_dd.trigger('change');
-            rec_modal.modal('show');
-        });
-    });
-    $('#export_recorders').on('submit', function(event){
-        var something_selected = false;
-        $('input[type=checkbox]', this).each(function(idx, el){
-            if (el.checked){something_selected = true;}
-        })
-        if (!something_selected){
-            dialogs.notification("No recorders selected");
-            event.preventDefault();
-        }
-    })
-    $('.btn-primary', rec_modal).on('click', function(event){
-        var params = {
-            nodenet_uid: currentNodenet,
-            interval: parseInt($('#recorder_interval').val()),
-            name: $('#recorder_name').val(),
-        };
-        var type = $('#recorder_type_input').val();
-        var method = null;
-        if(type == 'gate_activation_recorder'){
-            method = 'add_gate_activation_recorder';
-            params['group_definition'] = {
-                'nodespace_uid': $('#recorder_nodespace_uid').val(),
-                'gatetype': $('#recorder_gate').val(),
-            }
-            var ids = $('#recorder_node_uids').val();
-            if(ids){
-                ids = ids.split(',')
-                for(var i in ids){
-                    ids[i] = ids[i].trim();
-                }
-                params.group_definition['node_uids'] = ids;
-            } else{
-                params.group_definition['node_name_prefix'] = $('#recorder_node_name_prefix').val();
-            }
-        } else if(type == 'node_activation_recorder'){
-            method = 'add_node_activation_recorder';
-            params['group_definition'] = {
-                'nodespace_uid': $('#recorder_nodespace_uid').val(),
-            }
-            var ids = $('#recorder_node_uids').val();
-            if(ids){
-                ids = ids.split(',')
-                for(var i in ids){
-                    ids[i] = ids[i].trim();
-                }
-                params.group_definition['node_uids'] = ids;
-            } else{
-                params.group_definition['node_name_prefix'] = $('#recorder_node_name_prefix').val();
-            }
-        } else if(type == 'linkweight_recorder') {
-            method = "add_linkweight_recorder";
-            params['from_group_definition'] = {
-                'nodespace_uid': $('#recorder_from_nodespace_uid').val(),
-                'gatetype': $('#recorder_from_gate').val(),
-            }
-            var ids = $('#recorder_from_node_uids');
-            if(ids.val()){
-                params.from_group_definition['node_uids'] = ids.split(',')
-            } else{
-                params.from_group_definition['node_name_prefix'] = $('#recorder_from_node_name_prefix').val();
-            }
-            params['to_group_definition'] = {
-                'nodespace_uid': $('#recorder_to_nodespace_uid').val(),
-                'gatetype': $('#recorder_to_gate').val(),
-            }
-            var ids = $('#recorder_to_node_uids');
-            if(ids.val()){
-                params.to_group_definition['node_uids'] = ids.split(',')
-            } else{
-                params.to_group_definition['node_name_prefix'] = $('#recorder_to_node_name_prefix').val();
-            }
-        }
-        api.call(method, params, function(){
-            rec_modal.modal('hide');
-            api.defaultSuccessCallback();
-            refreshRecorders();
-        });
-    })
-
     init();
 
     if(!$('#nodenet_editor').length && currentNodenet){
         refreshMonitors();
     }
 
-    var splitviewclass = 'span6';
-    if(theano_available){
-        splitviewclass = 'span4'
-    }
+    var splitviewclass = 'span4';
 
     var count_sections = $('.layout_field').length;
     $('.layoutbtn').on('click', function(event){
@@ -194,7 +92,6 @@ $(function(){
         currentNodenet = newNodenet;
         init();
         refreshMonitors();
-        $('form#export_recorders').attr('action', '/recorder/export/' + currentNodenet);
     });
     $(document).on('nodenet_loaded', function(data, newNodenet){
         currentNodenet = newNodenet;
@@ -238,8 +135,7 @@ $(function(){
         var params = {
             logger: poll,
             after: last_logger_call,
-            monitor_count: viewProperties.xvalues,
-            with_recorders: true
+            monitor_count: viewProperties.xvalues
         }
         if(fixed_position){
             params['monitor_from'] = Math.max(fixed_position - (viewProperties.xvalues / 2), 1);
@@ -247,62 +143,11 @@ $(function(){
         return params;
     }
 
-    function setRecorderData(data){
-        var table = $('#recorder_table');
-        var html = '';
-        for(var uid in data){
-            var rec = data[uid];
-            html += '<tr><th colspan="3"><input type="checkbox" name="recorder_uids[]" value="'+uid+'" /> '+rec.name +'</th></tr>';
-            html += '<tr><td>&nbsp;</td><td colspan="2">';
-            html += '<button data-action="export" data-uid="'+rec.uid+'" class="btn btn-small">Export</button> ';
-            html += '<button data-action="clear" data-uid="'+rec.uid+'" class="btn btn-small">Clear</button> ';
-            html += '<button data-action="delete" data-uid="'+rec.uid+'" class="btn btn-small">Delete</button> ';
-            html += '</td></tr>'
-            html += '<tr><td>&nbsp;</td><td>Type:</td><td>'+rec.classname+'</td></tr>';
-            html += '<tr><td>&nbsp;</td><td>Entries:</td><td>'+(rec.current_index + 1)+'</td></tr>';
-            html += '<tr><td>&nbsp;</td><td>Interval:</td><td>'+rec.interval+'</td></tr>';
-            if(rec.group_config){
-                html += '<tr><td>&nbsp;</td><td>Group:</td><td>'+rec.group_config.group_name+'</td></tr>';
-            }
-            if(rec.from_group_config){
-                html += '<tr><td>&nbsp;</td><td>Groups:</td><td>From: '+rec.from_group_config.group_name+'<br/>To: '+rec.to_group_config.group_name+'</td></tr>';
-            }
-            html += '<tr><td>&nbsp;</td><td colspan="2">';
-
-            html += '</td></tr>';
-        }
-        table.html(html);
-        $('button', table).on('click', recorderAction);
-    }
-
-    function recorderAction(event){
-        event.preventDefault();
-        var btn = $(event.target);
-        var uid = btn.attr("data-uid");
-        var method_name = null;
-        switch(btn.attr('data-action')){
-            case 'export':
-                return window.location.replace('/recorder/export/'+currentNodenet+'-'+uid);
-            case 'clear':
-                method_name = 'clear_recorder'; break;
-            case 'delete':
-                method_name = 'remove_recorder'; break;
-        }
-        if(method_name){
-            api.call(method_name, {nodenet_uid: currentNodenet, recorder_uid: uid}, function(data){
-                api.defaultSuccessCallback(data);
-                refreshRecorders();
-            });
-        }
-    }
-
     function setData(data){
         currentSimulationStep = data.current_step;
         setMonitorData(data);
         setLoggingData(data);
-        if (data.recorders){
-            setRecorderData(data.recorders);
-        }
+        setStatusData(data);
     }
 
     if($('#monitor').height() > 0){
@@ -325,10 +170,6 @@ $(function(){
             params.nodenet_uid = newNodenet || currentNodenet;
             api.call('get_monitoring_info', params, setData);
         }
-    }
-
-    function refreshRecorders(){
-        api.call('get_recorders', {'nodenet_uid': currentNodenet}, setRecorderData);
     }
 
     function setMonitorData(data){
@@ -355,6 +196,58 @@ $(function(){
         if(logs.length > viewProperties.max_log_entries){
             logs.splice(0, logs.length - viewProperties.max_log_entries);
         }
+    }
+
+    function sortfunc(a, b){
+        if(a < b) return -1;
+        if(a > b) return 1;
+        return 0;
+    };
+
+    function setStatusData(data){
+        var table = $('#status_table');
+        table.html();
+        var html = [];
+
+        function fill_html(data, level){
+            var sorted_keys = Object.keys(data);
+            sorted_keys.sort(sortfunc);
+            for(var i = 0; i < sorted_keys.length; i++){
+                entry = data[sorted_keys[i]];
+                html.push(
+                    '<tr><td>',
+                    "&nbsp;".repeat(level * 3),
+                    sorted_keys[i],
+                    '</td><td>')
+                if(entry.state){
+                    html.push('<i class="status_indicator ',
+                        entry.state.replace(' ', ''),
+                        '" title="', entry.state, '" ',', />')
+                } else {
+                    html.push("&nbsp;");
+                }
+                html.push(
+                    '</td><td>',
+                    entry.msg || "&nbsp;",
+                    '</td><td>');
+                if(entry.progress){
+                    html.push(
+                        entry.progress[0] || "?",
+                        ' / ',
+                        entry.progress[1] || "?",
+                    );
+                }
+                else {
+                    html.push("&nbsp;");
+                }
+                html.push('</td></tr>');
+                if(Object.keys(entry.children).length){
+                    fill_html(entry.children, level+1);
+                }
+            }
+        }
+        fill_html(data.status, 0)
+        table.html(html.join(''));
     }
 
     function refreshLoggerView(){

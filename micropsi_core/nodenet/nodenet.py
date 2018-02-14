@@ -14,8 +14,9 @@ from abc import ABCMeta, abstractmethod
 import micropsi_core.tools
 from .netapi import NetAPI
 from . import monitor
-from . import recorder
 from .node import Nodetype, FlowNodetype, HighdimensionalNodetype
+from micropsi_core.nodenet.stepoperators import DoernerianEmotionalModulators
+from micropsi_core.nodenet.statuslogger import StatusLogger
 
 __author__ = 'joscha'
 __date__ = '09.05.12'
@@ -72,7 +73,8 @@ class Nodenet(metaclass=ABCMeta):
             'runner_condition': self._runner_condition,
             'use_modulators': self.use_modulators,
             'nodespace_ui_properties': self._nodespace_ui_properties,
-            'worldadapter_config': {} if not self.worldadapter_instance else self.worldadapter_instance.config
+            'worldadapter_config': {} if not self.worldadapter_instance else self.worldadapter_instance.config,
+            'device_map': {} if not self.worldadapter_instance else self.worldadapter_instance.device_map
         }
         return data
 
@@ -131,18 +133,22 @@ class Nodenet(metaclass=ABCMeta):
     @property
     def worldadapter_instance(self):
         """
-        Returns the uid of the currently connected world adapter
+        Returns the instance of the currently connected world adapter
         """
         return self._worldadapter_instance
 
     @worldadapter_instance.setter
     def worldadapter_instance(self, _worldadapter_instance):
         """
-        Connects the node net to the given world adapter uid, or disconnects if None is given
+        Connects the node net to the given worldadapter instance, or disconnects if None is given
         """
         self._worldadapter_instance = _worldadapter_instance
         if self._worldadapter_instance:
             self._worldadapter_instance.nodenet = self
+
+    @property
+    def statuslogger(self):
+        return self._statuslogger
 
     def __init__(self, persistency_path, name="", worldadapter="Default", world=None, owner="", uid=None, native_modules={}, use_modulators=True, worldadapter_instance=None, version=None):
         """
@@ -166,8 +172,8 @@ class Nodenet(metaclass=ABCMeta):
 
         self.runner_config = {}
         self.owner = owner
+        self._step = 0
         self._monitors = {}
-        self._recorders = {}
         self._adhoc_monitors = {}
         self._nodespace_ui_properties = {}
 
@@ -179,34 +185,36 @@ class Nodenet(metaclass=ABCMeta):
         self.user_prompt = None
         self.user_prompt_response = {}
 
-        self.netapi = NetAPI(self)
+        self._statuslogger = StatusLogger("agent.%s.status" % self.uid)
+        self._create_netapi()
 
         self.deleted_items = {}
         self.stepping_rate = []
         self.dashboard_values = {}
-        self.figures = {}
 
-        self.native_modules = {}
-        for type, data in native_modules.items():
-            if data.get('engine', self.engine) == self.engine:
-                try:
-                    if data.get('flow_module'):
-                        self.native_modules[type] = FlowNodetype(nodenet=self, **data)
-                    elif data.get('dimensionality'):
-                        self.native_modules[type] = HighdimensionalNodetype(nodenet=self, **data)
-                    else:
-                        self.native_modules[type] = Nodetype(nodenet=self, **data)
-                except Exception as err:
-                    self.logger.error("Can not instantiate node type %s: %s: %s" % (type, err.__class__.__name__, str(err)))
+        self.native_modules = self._load_nodetypes(native_modules)
+        self.native_module_instances = {}
+        self.native_module_definitions = dict((uid, native_modules[uid]) for uid in self.native_modules)
 
         self._modulators = {}
         if use_modulators:
-            from micropsi_core.nodenet.stepoperators import DoernerianEmotionalModulators as emo
-            for modulator in emo.writeable_modulators + emo.readable_modulators:
+            for modulator in DoernerianEmotionalModulators.writeable_modulators + DoernerianEmotionalModulators.readable_modulators:
                 self._modulators[modulator] = 1
 
         if not os.path.isdir(self.persistency_path):
             os.mkdir(self.persistency_path)
+
+        self.initialize_stepoperators()
+
+    def _create_netapi(self):
+        self.netapi = NetAPI(self)
+
+    @abstractmethod
+    def initialize_stepoperators(self):
+        """
+        Instantiate Stepoperators
+        """
+        pass  # pragma: no cover
 
     def get_data(self, complete=False, include_links=True):
         """
@@ -228,11 +236,15 @@ class Nodenet(metaclass=ABCMeta):
         })
         return data
 
-    def simulation_started(self):
+    def on_start(self):
         self.is_active = True
+        for uid, node in self.native_module_instances.items():
+            node.on_start(node)
 
-    def simulation_stopped(self):
+    def on_stop(self):
         self.is_active = False
+        for uid, node in self.native_module_instances.items():
+            node.on_stop(node)
 
     def set_user_prompt(self, node, key, message, parameters={}):
         if self.user_prompt is not None:
@@ -436,6 +448,20 @@ class Nodenet(metaclass=ABCMeta):
         """
         pass  # pragma: no cover
 
+    def _load_nodetypes(self, nodetype_data):
+        """
+        Creates nodetype-instances for the given nodetype data
+        """
+        newnative_modules = {}
+        for key, data in nodetype_data.items():
+            if data.get('engine', self.engine) == self.engine:
+                try:
+                    newnative_modules[key] = Nodetype(nodenet=self, **data)
+                except Exception as err:
+                    self.logger.error("Can not instantiate node type %s: %s: %s" % (key, err.__class__.__name__, str(err)))
+                    tools.post_mortem()
+        return newnative_modules
+
     @abstractmethod
     def reload_native_modules(self, native_modules):
         """
@@ -462,7 +488,7 @@ class Nodenet(metaclass=ABCMeta):
         pass  # pragma: no cover
 
     @abstractmethod
-    def merge_data(self, nodenet_data, keep_uids=False):
+    def merge_data(self, nodenet_data, keep_uids=False, uidmap={}):
         """
         Merges the data in nodenet_data into this nodenet.
         If keep_uids is True, the supplied UIDs will be used. This may lead to all sorts of inconsistencies,
@@ -514,6 +540,31 @@ class Nodenet(metaclass=ABCMeta):
             if type(self.native_modules[key]) == FlowNodetype:
                 data[key] = self.native_modules[key].get_data()
         return data
+
+    @abstractmethod
+    def construct_native_modules_numpy_state_dict(self):
+        """
+        Constructs a dict numpy states of all nodes
+        """
+        pass
+
+    def get_datasources(self):
+        """ Returns a sorted list of available datasources, including worldadapter datasources
+        and readable modulators"""
+        datasources = list(self.worldadapter_instance.get_available_datasources()) if self.worldadapter_instance else []
+        if self.use_modulators:
+            for item in sorted(DoernerianEmotionalModulators.readable_modulators):
+                datasources.append(item)
+        return datasources
+
+    def get_datatargets(self):
+        """ Returns a sorted list of available datatargets, including worldadapter datatargets
+        and writeable modulators"""
+        datatargets = list(self.worldadapter_instance.get_available_datatargets()) if self.worldadapter_instance else []
+        if self.use_modulators:
+            for item in sorted(DoernerianEmotionalModulators.writeable_modulators):
+                datatargets.append(item)
+        return datatargets
 
     @abstractmethod
     def group_nodes_by_names(self, nodespace_uid, node_name_prefix=None, gatetype="gen", sortby='id', group_name=None):
@@ -643,7 +694,6 @@ class Nodenet(metaclass=ABCMeta):
 
     def clear(self):
         self._monitors = {}
-        self.close_figures()
 
     def add_gate_monitor(self, node_uid, gate, name=None, color=None):
         """Adds a continuous monitor to the activation of a gate. The monitor will collect the activation
@@ -698,7 +748,7 @@ class Nodenet(metaclass=ABCMeta):
         If a monitor with the given name already exists, it's value-function is updated. """
         if name in self._adhoc_monitors:
             self._adhoc_monitors[name].function = function
-            self._adhoc_monitors[name].parameters
+            self._adhoc_monitors[name].parameters = parameters
         else:
             mon = monitor.AdhocMonitor(self, function, name, parameters=parameters)
             self._adhoc_monitors[name] = mon
@@ -706,14 +756,9 @@ class Nodenet(metaclass=ABCMeta):
     def get_monitor(self, uid):
         return self._monitors.get(uid)
 
-    def get_recorder(self, uid):
-        return self._recorders.get(uid)
-
-    def update_monitors_and_recorders(self):
+    def update_monitors(self):
         for uid in self._monitors:
             self._monitors[uid].step(self.current_step)
-        for uid in self._recorders:
-            self._recorders[uid].step(self.current_step)
         for name in self._adhoc_monitors:
             self._adhoc_monitors[name].step(self.current_step)
 
@@ -721,12 +766,6 @@ class Nodenet(metaclass=ABCMeta):
         data = {}
         for monitor_uid in self._monitors:
             data[monitor_uid] = self._monitors[monitor_uid].get_data(with_values=with_values)
-        return data
-
-    def construct_recorders_dict(self):
-        data = {}
-        for uid in self._recorders:
-            data[uid] = self._recorders[uid].get_data()
         return data
 
     def construct_adhoc_monitors_dict(self, with_values=True):
@@ -737,24 +776,6 @@ class Nodenet(metaclass=ABCMeta):
 
     def remove_monitor(self, monitor_uid):
         del self._monitors[monitor_uid]
-
-    def add_gate_activation_recorder(self, group_definition, name, interval=1):
-        """ Adds an activation recorder to a group of nodes."""
-        raise NotImplementedError("Recorders are not implemented in the this engine")
-
-    def add_node_activation_recorder(self, group_definition, name, interval=1):
-        """ Adds an activation recorder to a group of nodes."""
-        raise NotImplementedError("Recorders are not implemented in the this engine")
-
-    def add_linkweight_recorder(self, from_group_definition, to_group_definition, name, interval=1):
-        """ Adds a linkweight recorder to links between to groups."""
-        raise NotImplementedError("Recorders are not implemented in the this engine")
-
-    def remove_recorder(self, recorder_uid):
-        filename = self._recorders[recorder_uid].filename
-        if os.path.isfile(filename):
-            os.remove(filename)
-        del self._recorders[recorder_uid]
 
     def get_dashboard(self):
         data = self.dashboard_values.copy()
@@ -789,29 +810,3 @@ class Nodenet(metaclass=ABCMeta):
                 else:
                     del self.self._runner_condition['monitor']
         return False
-
-    def register_figure(self, node_uid, figure):
-        """ Registers a figure for the given node_uid"""
-        if node_uid in self.figures:
-            self.figures[node_uid].append(figure)
-        else:
-            self.figures[node_uid] = [figure]
-
-    def close_figures(self, node_uid=None):
-        """ Close all figures used by the given node, or alle figures if no uid given"""
-        try:
-            import matplotlib.pyplot as plt
-            if node_uid is not None:
-                plots = self.figures.get(node_uid, [])
-                if len(plots):
-                    self.logger.debug("Closing %d figures belonging to node %s" % (len(plots), node_uid))
-                    for fig in plots:
-                        plt.close(fig)
-                    del self.figures[node_uid]
-            else:
-                self.logger.debug("Closing open figures.")
-                for uid in self.figures:
-                    [plt.close(fig) for fig in self.figures[uid]]
-                self.figures = {}
-        except ImportError:
-            pass

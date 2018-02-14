@@ -143,18 +143,13 @@ var dialogs = {
 
 var api = {
 
+    base_url: '/rpc/',
+
     call: function(functionname, params, success_cb, error_cb, method){
-        var url = '/rpc/'+functionname;
-        if(method == "get"){
-            args = '';
-            for(var key in params){
-                args += key+'='+encodeURIComponent(JSON.stringify(params[key]))+',';
-            }
-            url += '('+args.substr(0, args.length-1) + ')';
-        }
+        var url = api.base_url+functionname;
         $.ajax({
             url: url,
-            data: ((method != "get") ? JSON.stringify(params) : null),
+            data: ((method != "get") ? JSON.stringify(params) : params),
             type: method || "post",
             processData: (method == "get"),
             contentType: "application/json",
@@ -252,7 +247,15 @@ $(function() {
             window.location.reload();
         });
     });
-
+    $('.navbar a.nodenet_edit').on('click', function(event){
+        event.preventDefault();
+        console.log($(event.target).attr('href') + currentNodenet);
+        dialogs.remote_form_dialog($(event.target).attr('href') + currentNodenet, function(data){
+            dialogs.notification('Changes saved', 'success');
+            window.location.reload();
+            // $(document).trigger("runner_stepped");
+        });
+    });
     $('.navbar a.nodenet_delete').on('click', function(){
         dialogs.confirm("Do you really want to delete this agent?", function(){
             api.call('delete_nodenet', {nodenet_uid: currentNodenet}, function(data){
@@ -263,11 +266,6 @@ $(function() {
                 window.location.reload();
             });
         });
-    });
-
-    $('.navbar a.nodenet_edit').on('click', function(event){
-        event.preventDefault();
-        api.call('edit_nodenet', {nodenet_uid: currentNodenet});
     });
 
     $('.navbar a.nodenet_save').on('click', function(event){
@@ -315,21 +313,14 @@ $(function() {
     });
 
     // WORLD
-    $('.navbar a.world_new').on('click', function(event){
+    $('.navbar a.world_manage').on('click', function(event){
         event.preventDefault();
-        dialogs.remote_form_dialog($(event.target).attr('href'), function(data){
-            dialogs.notification('Environment created. ID: ' + data.world_uid, 'success');
-            $(document).trigger('new_world_created', data);
-            var url = '/environment_list/' + ($.cookie('selected_world') || '');
-            $.get(url, {}, function(data){
-                $('#world_list').html(data);
-            });
-        });
+        dialogs.remote_form_dialog($(event.target).attr('href'));
     });
 
-    $('.navbar a.world_edit').on('click', function(event){
+    $('.navbar a.device_manage').on('click', function(event){
         event.preventDefault();
-        dialogs.remote_form_dialog($(event.target).attr("href") + "?id=" + currentWorld);
+        dialogs.remote_form_dialog($(event.target).attr('href'));
     });
 
     $('.navbar a.world_delete').on('click', function(event){
@@ -648,9 +639,10 @@ $(function() {
 
 updateWorldAdapterSelector = function() {
     var option = $("#nn_world option:selected");
-    if (option) {
-        $("#nn_worldadapter").parent().load("/create_worldadapter_selector/"+option.val());
-    }
+    uid = (option)? option.val() : "";
+    $("#nn_worldadapter").parent().load("/create_worldadapter_selector/"+option.val(), null, function(evt){
+        $('#nn_world').trigger("world_form_refreshed");
+    });
 };
 
 

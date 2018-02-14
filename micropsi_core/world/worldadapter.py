@@ -26,6 +26,8 @@ from collections import OrderedDict
 from threading import Lock
 from micropsi_core.world.worldobject import WorldObject
 from abc import ABCMeta, abstractmethod
+from micropsi_core.device.device import InputDevice, OutputDevice
+from micropsi_core.device import devicemanager
 
 
 class WorldAdapterMixin(object):
@@ -50,22 +52,23 @@ class WorldAdapterMixin(object):
         """ Called on reset """
         pass  # pragma: no cover
 
-    def update_datasources_and_targets(self):
-        pass  # pragma: no cover
+    def update_data_sources_and_targets(self):
+        super().update_data_sources_and_targets()
 
     def write_to_world(self):
-        pass  # pragma: no cover
+        super().write_to_world()
 
     def read_from_world(self):
+        super().read_from_world()
+
+    def on_start(self):
         pass  # pragma: no cover
 
-    def on_simulation_started(self):
-        pass  # pragma: no cover
-
-    def on_simulation_paused(self):
+    def on_stop(self):
         pass  # pragma: no cover
 
     def shutdown(self):
+        super().shutdown()
         pass  # pragma: no cover
 
 
@@ -80,6 +83,10 @@ class WorldAdapter(WorldObject, metaclass=ABCMeta):
     def get_config_options(cls):
         return []
 
+    @classmethod
+    def supports_devices(cls):
+        return False
+
     @property
     def generate_flow_modules(self):
         return False
@@ -87,6 +94,8 @@ class WorldAdapter(WorldObject, metaclass=ABCMeta):
     def __init__(self, world, uid=None, config={}, **data):
         self.datasources = {}
         self.datatargets = {}
+        self.device_map = {}
+        self.step_interval_ms = -1
         self.flow_datasources = OrderedDict()
         self.flow_datatargets = OrderedDict()
         self.flow_datatarget_feedbacks = OrderedDict()
@@ -159,8 +168,9 @@ class WorldAdapter(WorldObject, metaclass=ABCMeta):
         """set feedback for the given datatarget"""
         self.datatarget_feedback[key] = value
 
-    def update(self):
+    def update(self, step_inteval_ms):
         """ Called by the world at each world iteration """
+        self.step_interval_ms = step_inteval_ms
         self.update_data_sources_and_targets()
         self.reset_datatargets()
 
@@ -177,6 +187,10 @@ class WorldAdapter(WorldObject, metaclass=ABCMeta):
     def is_alive(self):
         """called by the world to check whether the agent has died and should be removed"""
         return True
+
+    def shutdown(self):
+        """ Called before the instance is deleted or recreated """
+        pass
 
 
 class Default(WorldAdapter):
@@ -209,11 +223,7 @@ try:
     # Only available if numpy is installed
     import numpy as np
 
-    # configure dtype for value arrays.
-    # TODO: Move this and the config in theano_nodenet to one central point
-    from configuration import config as settings
-
-    class ArrayWorldAdapter(WorldAdapter, metaclass=ABCMeta):
+    class ArrayWorldAdapter(WorldAdapter):
         """
         The ArrayWorldAdapter base class allows to avoid python dictionaries and loops for transmitting values
         to nodenet engines.
@@ -221,46 +231,63 @@ try:
         Numpy arrays can be passed directly into the engine.
         """
 
+        @classmethod
+        def supports_devices(cls):
+            return True
+
         @property
         def generate_flow_modules(self):
             return len(self.flow_datasources) or len(self.flow_datatargets)
 
         def __init__(self, world, uid=None, **data):
             WorldAdapter.__init__(self, world, uid=uid, **data)
-
-            precision = settings['theano']['precision']
-            self.floatX = np.float32
-            if precision == "64":
-                self.floatX = np.float64
-
             self.datasource_names = []
             self.datatarget_names = []
             self.flow_datasources = OrderedDict()
             self.flow_datatargets = OrderedDict()
             self.flow_datatarget_feedbacks = OrderedDict()
-            self.datasource_values = np.zeros(0, dtype=self.floatX)
-            self.datatarget_values = np.zeros(0, dtype=self.floatX)
-            self.datatarget_feedback_values = np.zeros(0, dtype=self.floatX)
+            self.datasource_values = np.zeros(0)
+            self.datatarget_values = np.zeros(0)
+            self.datatarget_feedback_values = np.zeros(0)
+            if data.get('device_map'):
+                for k in data['device_map']:
+                    if k not in devicemanager.get_known_devices():
+                        self.logger.error("Device %s (uid: %s) not found, not adding datasource or datatarget" % (data['device_map'][k], k))
+                    else:
+                        self.device_map[k] = data['device_map'][k]
+                        if k in devicemanager.online_devices:
+                            device_data = devicemanager.online_devices[k].get_config()
+                        else:
+                            device_data = devicemanager.known_devices[k]
+                            if device_data['type'] not in devicemanager.device_types:
+                                self.logger.error("Device %s (uid: %s) has unknown type %s. not adding datasource or datatarget" % (data['device_map'][k], k, device_data['type']))
+                                continue
+                        if device_data.get('nature') == InputDevice.__name__:
+                            self.add_flow_datasource(self.device_map[k], device_data['data_size'])
+                        elif device_data.get('nature') == OutputDevice.__name__:
+                            self.add_flow_datatarget(self.device_map[k], device_data['data_size'])
+                        else:
+                            self.logger.error("Device %s (uid: %s) not found, not adding datasource or datatarget" % (data['device_map'][k], k))
 
         def add_datasource(self, name, initial_value=0.):
             """ Adds a datasource, and returns the index
             where they were added"""
             self.datasource_names.append(name)
-            self.datasource_values = np.concatenate((self.datasource_values, np.asarray([initial_value], dtype=self.floatX)))
+            self.datasource_values = np.concatenate((self.datasource_values, np.asarray([initial_value])))
             return len(self.datasource_names) - 1
 
         def add_datatarget(self, name, initial_value=0.):
             """ Adds a datatarget, and returns the index
             where they were added"""
             self.datatarget_names.append(name)
-            self.datatarget_values = np.concatenate((self.datatarget_values, np.asarray([initial_value], dtype=self.floatX)))
-            self.datatarget_feedback_values = np.concatenate((self.datatarget_feedback_values, np.asarray([initial_value], dtype=self.floatX)))
+            self.datatarget_values = np.concatenate((self.datatarget_values, np.asarray([initial_value])))
+            self.datatarget_feedback_values = np.concatenate((self.datatarget_feedback_values, np.asarray([initial_value])))
             return len(self.datatarget_names) - 1
 
         def add_flow_datasource(self, name, shape, initial_values=None):
             """ Add a high-dimensional datasource for flowmodules."""
             if initial_values is None:
-                initial_values = np.zeros(shape, dtype=self.floatX)
+                initial_values = np.zeros(shape)
 
             self.flow_datasources[name] = initial_values
             return self.flow_datasources[name]
@@ -268,7 +295,7 @@ try:
         def add_flow_datatarget(self, name, shape, initial_values=None):
             """ Add a high-dimensional datatarget for flowmodules"""
             if initial_values is None:
-                initial_values = np.zeros(shape, dtype=self.floatX)
+                initial_values = np.zeros(shape)
 
             self.flow_datatargets[name] = initial_values
             self.flow_datatarget_feedbacks[name] = np.zeros_like(initial_values)
@@ -358,22 +385,22 @@ try:
         def set_flow_datasource(self, name, values):
             """Set the values of the given flow_datasource """
             assert isinstance(values, np.ndarray), "must provide numpy array"
-            assert values.dtype == self.floatX
-            assert self.flow_datasources[name].shape == values.shape
+            shape = self.flow_datasources[name].shape
+            assert shape == values.shape, "Datasource %s expects shape %s, got %s" % (name, shape, values.shape)
             self.flow_datasources[name] = values
 
         def add_to_flow_datatarget(self, name, values):
             """Add the given values to the given flow_datatarget """
             assert isinstance(values, np.ndarray), "must provide numpy array"
-            assert values.dtype == self.floatX
-            assert self.flow_datatargets[name].shape == values.shape
+            shape = self.flow_datatargets[name].shape
+            assert shape == values.shape, "Datatarget %s expects shape %s, got %s" % (name, shape, values.shape)
             self.flow_datatargets[name] += values
 
         def set_flow_datatarget_feedback(self, name, values):
             """Set the values of the given flow_datatarget_feedback """
             assert isinstance(values, np.ndarray), "must provide numpy array"
-            assert values.dtype == self.floatX
-            assert self.flow_datatarget_feedbacks[name].shape == values.shape
+            shape = self.flow_datatarget_feedbacks[name].shape
+            assert shape == values.shape, "DatatargetFeedback %s expects shape %s, got %s" % (name, shape, values.shape)
             self.flow_datatarget_feedbacks[name] = values
 
         def set_datasource_values(self, values):
@@ -402,39 +429,28 @@ try:
             for name in self.flow_datatargets:
                 self.flow_datatargets[name] = np.zeros_like(self.flow_datatargets[name])
 
-        @abstractmethod
-        def update_data_sources_and_targets(self):
-            """
-            must be implemented by concrete world adapters to read and set the following arrays:
-            datasource_values
-            datatarget_values
-            datatarget_feedback_values
+        def read_from_world(self):
+            for k in self.device_map:
+                if k in devicemanager.online_devices:
+                    if issubclass(devicemanager.online_devices[k].__class__, InputDevice):
+                        data = devicemanager.online_devices[k].get_data()
+                        assert isinstance(data, np.ndarray), "device %s must provide numpy array, not %s" % (self.device_map[k], type(data))
+                        self.set_flow_datasource(self.device_map[k], data)
+                elif devicemanager.known_devices[k].get('nature') == "InputDevice":
+                    self.logger.error("Device %s is not connected. Using zeros." % self.device_map[k])
 
-            Arrays sizes need to be equal to the corresponding responses of get_available_datasources() and
-            get_available_datatargets().
-            Values of the superclass' dict objects will be bypassed and ignored.
-            """
-            pass  # pragma: no cover
-
-    class DefaultArray(ArrayWorldAdapter):
-        """
-        A default ArrayWorldadapter, that provides example-datasources and -targets
-        """
-        def __init__(self, world, uid=None, config={}, **data):
-            super().__init__(world, uid=uid, config=config, **data)
-            self.add_datasource("test", initial_value=0)
-            self.add_flow_datasource("vision", (3, 7))
-            self.add_datatarget("test", initial_value=0)
-            self.add_flow_datatarget("action", (2, 3))
-            self.update_data_sources_and_targets()
+        def write_to_world(self):
+            for k in self.device_map:
+                if k in devicemanager.online_devices:
+                    if issubclass(devicemanager.online_devices[k].__class__, OutputDevice):
+                        data = self.get_flow_datatarget(self.device_map[k])
+                        devicemanager.online_devices[k].set_data(data)
+                elif devicemanager.known_devices[k].get('nature') == "OutputDevice":
+                    self.logger.error("Device %s is not connected." % self.device_map[k])
 
         def update_data_sources_and_targets(self):
-            import random
-            self.datatarget_feedback_values[:] = self.datatarget_values
-            self.datasource_values[:] = np.random.randn(len(self.datasource_values))
-            self.flow_datasources['vision'][:] = np.random.randn(*self.flow_datasources['vision'].shape)
-            self.flow_datatargets['action'][:] = np.zeros_like(self.flow_datatargets['action'])
-
+            self.write_to_world()
+            self.read_from_world()
 
 except ImportError:  # pragma: no cover
     pass

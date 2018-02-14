@@ -4,8 +4,6 @@
 """
 
 """
-import os
-import mock
 import pytest
 from micropsi_core import runtime
 
@@ -38,7 +36,9 @@ def test_default_worldadater(default_world):
     adapter.set_datatarget_values([0.7])
     assert adapter.datatargets["echo"] == 0.7
 
-    adapter.update()
+    adapter.update(17)
+
+    assert adapter.step_interval_ms == 17
 
     assert adapter.get_datatarget_feedback_value("echo") == 0.7
     assert adapter.get_datatarget_feedback_values() == [0.7]
@@ -127,13 +127,13 @@ def test_flow_datasources(default_world):
 
     class TestArrayWA(wa.ArrayWorldAdapter):
         def update_data_sources_and_targets(self):
-            self.datasource_values = np.random.rand(self.datasource_values.shape).astype(self.floatX)
-            self.datatarget_feedback_values = np.copy(self.datatarget_values).astype(self.floatX)
+            self.datasource_values = np.random.rand(self.datasource_values.shape)
+            self.datatarget_feedback_values = np.copy(self.datatarget_values)
 
     adapter = TestArrayWA(runtime.worlds[default_world])
 
     vision_shape = (2, 5)
-    vision_init = np.random.rand(*vision_shape).astype(adapter.floatX)
+    vision_init = np.random.rand(*vision_shape)
     adapter.add_datasource("s_foo")
     adapter.add_flow_datasource("s_vision", shape=vision_shape, initial_values=vision_init)
     adapter.add_datasource("s_bar")
@@ -148,8 +148,8 @@ def test_flow_datasources(default_world):
     assert adapter.get_available_datatargets() == ['t_execute']
     assert adapter.get_available_flow_datatargets() == ['t_motor']
 
-    vision = np.random.rand(*vision_shape).astype(adapter.floatX)
-    motor = np.random.rand(*motor_shape).astype(adapter.floatX)
+    vision = np.random.rand(*vision_shape)
+    motor = np.random.rand(*motor_shape)
 
     adapter.set_flow_datasource("s_vision", vision)
     adapter.add_to_flow_datatarget("t_motor", motor)
@@ -172,8 +172,8 @@ def test_worldadapter_mixin(default_world):
             super().__init__(world, **data)
             self.add_datasource("some_setting")
 
-        def update_datasources_and_targets(self):
-            super().update_datasources_and_targets()
+        def update_data_sources_and_targets(self):
+            super().update_data_sources_and_targets()
             self.set_datasource_value("some_setting", self.some_setting)
 
     class TestArrayWA(TestMixin, wa.ArrayWorldAdapter):
@@ -189,7 +189,7 @@ def test_worldadapter_mixin(default_world):
             self.add_datasource("blubb")
 
         def update_data_sources_and_targets(self):
-            super().update_datasources_and_targets()
+            super().update_data_sources_and_targets()
             self.set_datasource_value("blubb", 21)
 
     world = runtime.worlds[default_world]
